@@ -82,13 +82,18 @@ router.post("/scan", async (req: Request, res: Response) => {
 
   for (const server of servers) {
     try {
-      // Check if docker is installed
-      const dockerCheck = await sshExec(server, `command -v docker 2>/dev/null || echo "__NOT_FOUND__"`).catch(() => "__NOT_FOUND__");
+      // Check if docker is installed (don't auto-disable on SSH failures)
+      let dockerCheck: string;
+      try {
+        dockerCheck = await sshExec(server, `command -v docker 2>/dev/null || echo "__NOT_FOUND__"`);
+      } catch (sshErr: any) {
+        errors.push(`${server.name}: SSH failed — ${sshErr.message}`);
+        continue;
+      }
+
       if (dockerCheck.includes("__NOT_FOUND__")) {
         errors.push(`${server.name}: Docker is not installed on this server`);
-        // Auto-disable docker flag
-        await prisma.server.update({ where: { id: server.id }, data: { hasDocker: false } });
-        continue;
+        continue; // Don't auto-disable flag — user may fix it
       }
 
       // Check if docker daemon is running
