@@ -316,19 +316,23 @@ router.get("/:id/logs", async (req: Request, res: Response) => {
   const stackDir = `/opt/obb-stacks/${stack.name.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 
   try {
-    // Get container names from this stack
-    const ps = await sshExec(server,
-      `cd "${stackDir}" && (docker compose ps --format "{{.Name}}" 2>/dev/null || docker-compose ps 2>/dev/null | awk 'NR>1{print $1}')`).catch(() => "");
-    const names = ps.split("\n").filter(Boolean);
+    // Use stored container names first, then try compose ps
+    let names = stack.containerNames.filter(Boolean);
 
-    if (names.length === 0 && stack.containerNames.length > 0) {
-      // Fallback to stored names
-      names.push(...stack.containerNames);
+    if (names.length === 0) {
+      const ps = await sshExec(server,
+        `cd "${stackDir}" 2>/dev/null && (docker compose ps --format "{{.Name}}" 2>/dev/null || docker-compose ps 2>/dev/null | awk 'NR>1{print $1}') || echo ""`).catch(() => "");
+      names = ps.split("\n").filter(n => n.trim() && !n.includes("No such file"));
     }
 
-    // Get logs from each container individually (works on all Docker versions)
+    if (names.length === 0) {
+      return res.json({ logs: "No containers found for this stack. Try redeploying." });
+    }
+
+    // Get logs from each container individually
     let allLogs = "";
     for (const name of names) {
+      if (!name.trim()) continue;
       const containerLogs = await sshExec(server,
         `docker logs --tail ${Math.floor(tail / Math.max(names.length, 1))} ${name} 2>&1`).catch(() => "");
       if (containerLogs) {
