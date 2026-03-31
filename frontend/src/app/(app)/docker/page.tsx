@@ -110,6 +110,7 @@ function ContainersTab({ servers }: { servers: ServerItem[] }) {
   const [editRestart, setEditRestart] = useState("unless-stopped");
   const [editCompose, setEditCompose] = useState("");
   const [composeMode, setComposeMode] = useState(false);
+  const [pullLatest, setPullLatest] = useState(false);
 
   const load = () => api<ContainerItem[]>("/containers").then(setContainers).catch(() => {}).finally(() => setLoading(false));
   useEffect(() => { load(); const iv = setInterval(load, 10000); return () => clearInterval(iv); }, []);
@@ -170,6 +171,7 @@ function ContainersTab({ servers }: { servers: ServerItem[] }) {
         volumes: editVolumes.filter(v => v.name && v.destination),
         restartPolicy: editRestart,
         networks: inspectData?.networks || [],
+        pullLatest,
       };
       if (composeMode && editCompose.trim()) body.compose = editCompose;
 
@@ -395,13 +397,23 @@ function ContainersTab({ servers }: { servers: ServerItem[] }) {
                           </>
                         )}
 
-                        {/* Save button */}
-                        <div className="flex gap-2 pt-2 border-t border-border">
-                          <Button className="flex-1" onClick={() => saveAndRedeploy(c)} disabled={saving}>
-                            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                            {saving ? "Deploying..." : composeMode ? "Deploy Compose" : "Save & Redeploy"}
-                          </Button>
-                          <Button variant="outline" onClick={() => { setExpanded(null); setInspectData(null); }}>Cancel</Button>
+                        {/* Pull latest toggle + Save button */}
+                        <div className="pt-2 border-t border-border space-y-3">
+                          <div className="flex items-center gap-2">
+                            <input type="checkbox" id="pullLatest" checked={pullLatest}
+                              onChange={e => setPullLatest(e.target.checked)} className="accent-primary" />
+                            <label htmlFor="pullLatest" className="text-sm">Pull latest image before redeploy</label>
+                            <span className="text-[10px] text-muted-foreground ml-1">
+                              (fetches newest version from registry)
+                            </span>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button className="flex-1" onClick={() => saveAndRedeploy(c)} disabled={saving}>
+                              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                              {saving ? "Deploying..." : pullLatest ? "Pull & Redeploy" : composeMode ? "Deploy Compose" : "Save & Redeploy"}
+                            </Button>
+                            <Button variant="outline" onClick={() => { setExpanded(null); setInspectData(null); }}>Cancel</Button>
+                          </div>
                         </div>
                       </div>
                     ) : null}

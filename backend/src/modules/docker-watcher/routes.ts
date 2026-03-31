@@ -400,7 +400,7 @@ router.get("/inspect/:serverId/:containerName", async (req: Request, res: Respon
 
 router.post("/update/:serverId/:containerName", async (req: Request, res: Response) => {
   const { serverId, containerName } = req.params;
-  const { image, ports, env, volumes, restartPolicy, networks, cmd, compose } = req.body;
+  const { image, ports, env, volumes, restartPolicy, networks, cmd, compose, pullLatest } = req.body;
 
   try {
     const server = await getServer(serverId, req.auth!.workspaceId);
@@ -414,7 +414,7 @@ router.post("/update/:serverId/:containerName", async (req: Request, res: Respon
       await sshExec(server, `mkdir -p "${composeDir}"`);
       await sshExec(server, `cat > "${composeDir}/docker-compose.yml" << 'CEOF'\n${compose}\nCEOF`);
       // --remove-orphans but NEVER -v (preserve volumes/data)
-      await sshExec(server, `cd "${composeDir}" && docker compose down --remove-orphans 2>/dev/null; docker compose up -d 2>&1`, 120000);
+      await sshExec(server, `cd "${composeDir}" && docker compose down --remove-orphans 2>/dev/null; ${pullLatest ? "docker compose pull 2>&1;" : ""} docker compose up -d 2>&1`, 120000);
       // Re-scan to pick up new containers
       await quickRescan(server);
       return res.json({ success: true, method: "compose", message: "Deployed via docker-compose" });
@@ -453,7 +453,7 @@ router.post("/update/:serverId/:containerName", async (req: Request, res: Respon
     // Stop old container and deploy via compose
     await sshExec(server, `docker stop ${containerName} 2>/dev/null; docker rm ${containerName} 2>/dev/null || true`);
     const output = await sshExec(server,
-      `cd "${composeDir}" && ${composeCmd} pull 2>&1; ${composeCmd} up -d 2>&1`, 120000);
+      `cd "${composeDir}" && ${pullLatest ? `${composeCmd} pull 2>&1;` : ""} ${composeCmd} up -d 2>&1`, 120000);
 
     // Re-scan to pick up new container in DB
     await quickRescan(server);
