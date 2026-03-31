@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #262626 #0a0a0a;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+*::-webkit-scrollbar-thumb {
+  background: #262626;
+  border-radius: 3px;
+}
+
+body {
+  background: #0a0a0a;
+  color: #e5e5e5;
+}
+
+/* Neon glow effects */
+.neon-glow {
+  box-shadow: 0 0 5px rgba(34, 197, 94, 0.15), 0 0 20px rgba(34, 197, 94, 0.05);
+}
+.neon-border {
+  border-color: rgba(34, 197, 94, 0.3);
+}
+.neon-text {
+  text-shadow: 0 0 10px rgba(34, 197, 94, 0.3);
+}
+
+/* OTP ring animation */
+@keyframes otp-countdown {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: 113; }
+}

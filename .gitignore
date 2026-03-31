@@ -1,0 +1,8 @@
+node_modules/
+.next/
+dist/
+.env
+*.log
+.install-info
+pgdata/
+redisdata/

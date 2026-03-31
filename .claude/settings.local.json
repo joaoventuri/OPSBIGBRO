@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest frontend --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --no-turbopack --use-npm)",
+      "Bash(npx --yes create-next-app@latest frontend --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --no-turbopack --use-npm --no-experimental-app)",
+      "Bash(npx prisma:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker ps:*)",
+      "Bash(npx tsx:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3002/login)",
+      "Bash(curl -s http://localhost:3001/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"\"\"email\"\"\"\":\"\"\"\"admin@opsbigbro.local\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"admin123\"\"\"\"}')",
+      "Bash(npm ls:*)",
+      "Bash(curl -s http://localhost:3001/api/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/login)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3004/login)",
+      "Bash(netstat -aon)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(pkill -f \"tsx watch\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3002/servers)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3002/docker)",
+      "Bash(npx tsx -e \":*)",
+      "Read(//tmp/**)",
+      "Bash(curl -s http://localhost:3001/ide/proxy/dc8c9297-9c1f-408e-868e-43fbc683c4e9/)",
+      "Bash(git init:*)",
+      "Bash(gh auth:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
