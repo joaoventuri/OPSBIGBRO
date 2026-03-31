@@ -40,9 +40,9 @@ function sshExec(server: any, cmd: string, timeoutMs = 30000): Promise<string> {
 
 async function getServer(serverId: string, workspaceId: string) {
   const server = await prisma.server.findFirst({
-    where: { id: serverId, workspaceId, hasDocker: true },
+    where: { id: serverId, workspaceId },
   });
-  if (!server) throw new Error("Server not found or Docker not enabled");
+  if (!server) throw new Error("Server not found");
   return server;
 }
 
@@ -194,6 +194,9 @@ router.post("/action", async (req: Request, res: Response) => {
 
     if (action === "remove") {
       await prisma.container.deleteMany({ where: { serverId, containerId } });
+    } else {
+      // Rescan to update status in DB
+      await quickRescan(server);
     }
 
     res.json({ success: true, output });
@@ -397,12 +400,17 @@ router.post("/update/:serverId/:containerName", async (req: Request, res: Respon
   try {
     const server = await getServer(serverId, req.auth!.workspaceId);
 
+    // Delete old container record from DB (new one will have different ID)
+    await prisma.container.deleteMany({ where: { serverId, name: containerName } });
+
     // If compose provided, write and deploy via compose
     if (compose && compose.trim()) {
       const composeDir = `/opt/obb-compose/${containerName}`;
       await sshExec(server, `mkdir -p "${composeDir}"`);
       await sshExec(server, `cat > "${composeDir}/docker-compose.yml" << 'CEOF'\n${compose}\nCEOF`);
       await sshExec(server, `cd "${composeDir}" && docker compose down 2>/dev/null; docker compose up -d 2>&1`, 120000);
+      // Re-scan to pick up new containers
+      await quickRescan(server);
       return res.json({ success: true, method: "compose", message: "Deployed via docker-compose" });
     }
 
@@ -463,11 +471,39 @@ router.post("/update/:serverId/:containerName", async (req: Request, res: Respon
       }
     }
 
+    // Re-scan to pick up new container in DB
+    await quickRescan(server);
+
     res.json({ success: true, method: "manual", containerId: output.trim().slice(0, 12) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ─── Quick rescan single server ─────────────────────────────
+
+async function quickRescan(server: any) {
+  try {
+    const psOut = await sshExec(server, `docker ps -a --format "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}" 2>/dev/null`);
+    for (const line of psOut.split("\n")) {
+      if (!line.trim()) continue;
+      const [id, name, image, statusStr] = line.split("|");
+      if (!id) continue;
+      const cid = id.trim();
+      let status = "running";
+      const sl = (statusStr || "").toLowerCase();
+      if (sl.includes("exited")) status = "exited";
+      else if (sl.includes("paused")) status = "paused";
+      else if (sl.includes("created")) status = "created";
+
+      await prisma.container.upsert({
+        where: { serverId_containerId: { serverId: server.id, containerId: cid } },
+        create: { serverId: server.id, containerId: cid, name: (name || "").trim(), image: (image || "").trim(), status },
+        update: { name: (name || "").trim(), image: (image || "").trim(), status, lastUpdatedAt: new Date() },
+      });
+    }
+  } catch { /* silent */ }
+}
 
 // ─── CONTAINER LOGS ─────────────────────────────────────────
 
