@@ -116,35 +116,63 @@ router.post("/deploy", async (req: Request, res: Response) => {
   res.status(201).json(stack);
 });
 
+// Detect docker compose v1 vs v2
+async function getComposeCmd(server: any): Promise<string> {
+  const v2 = await sshExec(server, `docker compose version 2>/dev/null && echo "V2OK"`).catch(() => "");
+  if (v2.includes("V2OK")) return "docker compose";
+  const v1 = await sshExec(server, `docker-compose version 2>/dev/null && echo "V1OK"`).catch(() => "");
+  if (v1.includes("V1OK")) return "docker-compose";
+  throw new Error("Neither 'docker compose' (v2) nor 'docker-compose' (v1) found. Install docker-compose first.");
+}
+
+// Write file to remote via SSH (handles special chars safely)
+async function sshWriteFile(server: any, path: string, content: string) {
+  const b64 = Buffer.from(content).toString("base64");
+  // Split into chunks to avoid command line length limits
+  const chunkSize = 4000;
+  await sshExec(server, `rm -f "${path}"`);
+  for (let i = 0; i < b64.length; i += chunkSize) {
+    const chunk = b64.slice(i, i + chunkSize);
+    await sshExec(server, `printf '%s' '${chunk}' >> "${path}.b64"`);
+  }
+  await sshExec(server, `base64 -d "${path}.b64" > "${path}" && rm -f "${path}.b64"`);
+}
+
 async function deployStack(stackId: string, server: any, name: string, compose: string) {
   const stackDir = `/opt/obb-stacks/${name.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 
   try {
+    const composeCmd = await getComposeCmd(server);
+    console.log(`[Stack] Using "${composeCmd}" on ${server.host}`);
+
     await sshExec(server, `mkdir -p "${stackDir}"`);
 
-    // Write compose file — use base64 to avoid escaping issues
-    const b64 = Buffer.from(compose).toString("base64");
-    await sshExec(server, `echo "${b64}" | base64 -d > "${stackDir}/docker-compose.yml"`);
+    // Write compose file safely
+    await sshWriteFile(server, `${stackDir}/docker-compose.yml`, compose);
+
+    // Verify file was written
+    const check = await sshExec(server, `wc -c < "${stackDir}/docker-compose.yml"`);
+    if (parseInt(check) < 10) throw new Error("Failed to write docker-compose.yml to server");
 
     // Deploy
     const output = await sshExec(server,
-      `cd "${stackDir}" && docker compose pull 2>&1 && docker compose up -d 2>&1`,
-      300000 // 5 min for large stacks
+      `cd "${stackDir}" && ${composeCmd} pull 2>&1; ${composeCmd} up -d 2>&1`,
+      300000
     );
 
-    console.log(`[Stack] Deployed "${name}": ${output.slice(-200)}`);
+    console.log(`[Stack] Deployed "${name}": ${output.slice(-300)}`);
 
-    // Wait for containers to start, then get names (retry a few times)
+    // Wait for containers to start
     let containerNames: string[] = [];
     for (let i = 0; i < 5; i++) {
       await new Promise(r => setTimeout(r, 3000));
       const ps = await sshExec(server,
-        `cd "${stackDir}" && docker compose ps --format "{{.Name}}" 2>/dev/null`).catch(() => "");
-      containerNames = ps.split("\n").filter(Boolean);
+        `cd "${stackDir}" && ${composeCmd} ps 2>/dev/null | awk 'NR>1{print $1}'`).catch(() => "");
+      containerNames = ps.split("\n").filter(Boolean).filter(n => n !== "NAME" && n !== "---");
       if (containerNames.length > 0) break;
     }
 
-    // Fallback: parse service names from compose if ps failed
+    // Fallback: parse from compose
     if (containerNames.length === 0) {
       containerNames = extractServiceNames(compose);
     }
@@ -207,7 +235,8 @@ router.post("/:id/stop", async (req: Request, res: Response) => {
   if (!server) return res.status(404).json({ error: "Server not found" });
 
   const stackDir = `/opt/obb-stacks/${stack.name.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-  await sshExec(server, `cd "${stackDir}" && docker compose stop 2>&1`);
+  const cc = await getComposeCmd(server);
+  await sshExec(server, `cd "${stackDir}" && ${cc} stop 2>&1`);
   await prisma.stack.update({ where: { id: stack.id }, data: { status: "stopped" } });
   res.json({ success: true });
 });
@@ -224,7 +253,8 @@ router.post("/:id/start", async (req: Request, res: Response) => {
   if (!server) return res.status(404).json({ error: "Server not found" });
 
   const stackDir = `/opt/obb-stacks/${stack.name.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-  await sshExec(server, `cd "${stackDir}" && docker compose up -d 2>&1`);
+  const cc = await getComposeCmd(server);
+  await sshExec(server, `cd "${stackDir}" && ${cc} up -d 2>&1`);
   await prisma.stack.update({ where: { id: stack.id }, data: { status: "running" } });
   res.json({ success: true });
 });
@@ -240,8 +270,8 @@ router.delete("/:id", async (req: Request, res: Response) => {
   const server = await prisma.server.findUnique({ where: { id: stack.serverId } });
   if (server) {
     const stackDir = `/opt/obb-stacks/${stack.name.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-    // Stop and remove containers but KEEP volumes
-    await sshExec(server, `cd "${stackDir}" && docker compose down --remove-orphans 2>/dev/null; rm -rf "${stackDir}"`).catch(() => {});
+    const cc = await getComposeCmd(server).catch(() => "docker-compose");
+    await sshExec(server, `cd "${stackDir}" && ${cc} down --remove-orphans 2>/dev/null; rm -rf "${stackDir}"`).catch(() => {});
   }
 
   await prisma.stack.delete({ where: { id: stack.id } });
@@ -261,7 +291,7 @@ router.get("/:id/status", async (req: Request, res: Response) => {
 
   const stackDir = `/opt/obb-stacks/${stack.name.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
   const ps = await sshExec(server,
-    `cd "${stackDir}" && docker compose ps --format "{{.Name}}|{{.Status}}|{{.Image}}" 2>/dev/null`).catch(() => "");
+    `cd "${stackDir}" && (docker compose ps --format "{{.Name}}|{{.Status}}|{{.Image}}" 2>/dev/null || docker-compose ps 2>/dev/null | awk 'NR>1{print $1"|"$3"|"$2}')`).catch(() => "");
 
   const containers = ps.split("\n").filter(Boolean).map(line => {
     const [name, status, image] = line.split("|");
@@ -288,7 +318,7 @@ router.get("/:id/logs", async (req: Request, res: Response) => {
   try {
     // Get container names from this stack
     const ps = await sshExec(server,
-      `cd "${stackDir}" && docker compose ps --format "{{.Name}}" 2>/dev/null`).catch(() => "");
+      `cd "${stackDir}" && (docker compose ps --format "{{.Name}}" 2>/dev/null || docker-compose ps 2>/dev/null | awk 'NR>1{print $1}')`).catch(() => "");
     const names = ps.split("\n").filter(Boolean);
 
     if (names.length === 0 && stack.containerNames.length > 0) {
