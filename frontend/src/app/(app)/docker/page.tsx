@@ -87,7 +87,8 @@ export default function DockerPage() {
 
 interface InspectData {
   name: string; image: string; ports: any[]; env: any[]; volumes: any[];
-  networks: string[]; restartPolicy: string; cmd: any; compose: string; labels: any;
+  networks: string[]; restartPolicy: string; cmd: any; compose: string;
+  originalCompose?: string | null; hasOriginalCompose?: boolean; labels: any;
 }
 
 function ContainersTab({ servers }: { servers: ServerItem[] }) {
@@ -273,24 +274,37 @@ function ContainersTab({ servers }: { servers: ServerItem[] }) {
                           <button onClick={() => setComposeMode(true)} className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${composeMode ? "bg-primary/10 text-primary border-primary/30" : "bg-secondary text-muted-foreground border-border"}`}>
                             <FileText className="h-3 w-3 inline mr-1" />Docker Compose
                           </button>
-                          {inspectData.labels?.["com.docker.compose.project"] && (
-                            <span className="text-[10px] text-muted-foreground ml-2">Compose project: {inspectData.labels["com.docker.compose.project"]}</span>
-                          )}
                         </div>
 
                         {composeMode ? (
                           /* Docker Compose editor */
-                          <div>
-                            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">docker-compose.yml</label>
-                            <textarea
-                              className="mt-1 w-full rounded-md border border-border bg-black px-4 py-3 text-xs font-mono text-green-400 resize-y focus:outline-none focus:ring-1 focus:ring-ring"
-                              style={{ minHeight: "300px" }}
-                              value={editCompose}
-                              onChange={e => setEditCompose(e.target.value)}
-                              placeholder="Paste or edit your docker-compose.yml here..."
-                              spellCheck={false}
-                            />
-                            <p className="text-[10px] text-muted-foreground mt-1">Edit and save to redeploy via <code>docker compose up -d</code></p>
+                          <div className="space-y-3">
+                            {inspectData.hasOriginalCompose && inspectData.originalCompose && (
+                              <div>
+                                <div className="flex items-center justify-between">
+                                  <label className="text-xs font-medium text-yellow-400 uppercase tracking-wider">Original compose (from server)</label>
+                                  <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setEditCompose(inspectData.originalCompose || "")}>
+                                    Use Original
+                                  </Button>
+                                </div>
+                                <pre className="mt-1 rounded-md border border-yellow-500/20 bg-yellow-500/5 px-4 py-3 text-xs font-mono text-yellow-200/70 max-h-48 overflow-auto whitespace-pre">
+                                  {inspectData.originalCompose}
+                                </pre>
+                              </div>
+                            )}
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                docker-compose.yml {!inspectData.hasOriginalCompose && <span className="normal-case text-muted-foreground/60">(auto-generated from container config)</span>}
+                              </label>
+                              <textarea
+                                className="mt-1 w-full rounded-md border border-border bg-black px-4 py-3 text-xs font-mono text-green-400 resize-y focus:outline-none focus:ring-1 focus:ring-ring"
+                                style={{ minHeight: "300px" }}
+                                value={editCompose}
+                                onChange={e => setEditCompose(e.target.value)}
+                                spellCheck={false}
+                              />
+                              <p className="text-[10px] text-muted-foreground mt-1">Edit freely and deploy — runs <code className="text-primary/70">docker compose up -d</code> on the server</p>
+                            </div>
                           </div>
                         ) : (
                           /* Field editor */

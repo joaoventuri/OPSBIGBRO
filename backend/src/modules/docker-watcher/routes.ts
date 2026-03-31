@@ -202,6 +202,97 @@ router.post("/action", async (req: Request, res: Response) => {
   }
 });
 
+// ─── Generate docker-compose.yml from inspect data ──────────
+
+function generateComposeFromInspect(c: {
+  name: string; image: string; ports: any[]; env: any[];
+  volumes: any[]; networks: string[]; restartPolicy: string;
+  cmd: any; workingDir: string; labels: any;
+}): string {
+  const lines: string[] = [];
+  lines.push("services:");
+  lines.push(`  ${c.name}:`);
+  lines.push(`    image: ${c.image}`);
+  lines.push(`    container_name: ${c.name}`);
+
+  if (c.restartPolicy && c.restartPolicy !== "no") {
+    lines.push(`    restart: ${c.restartPolicy}`);
+  }
+
+  // Ports
+  if (c.ports.length > 0) {
+    lines.push("    ports:");
+    for (const p of c.ports) {
+      lines.push(`      - "${p.host}:${p.container}"`);
+    }
+  }
+
+  // Environment
+  if (c.env.length > 0) {
+    lines.push("    environment:");
+    for (const e of c.env) {
+      // Escape values with special chars
+      const val = e.value.includes(" ") || e.value.includes("#") || e.value.includes(":")
+        ? `"${e.value.replace(/"/g, '\\"')}"`
+        : e.value;
+      lines.push(`      ${e.key}: ${val}`);
+    }
+  }
+
+  // Volumes
+  if (c.volumes.length > 0) {
+    lines.push("    volumes:");
+    for (const v of c.volumes) {
+      lines.push(`      - ${v.name}:${v.destination}`);
+    }
+  }
+
+  // Command
+  if (c.cmd && Array.isArray(c.cmd) && c.cmd.length > 0) {
+    const cmdStr = c.cmd.join(" ");
+    // Skip default entrypoint commands
+    if (!cmdStr.includes("docker-entrypoint")) {
+      lines.push(`    command: ${cmdStr}`);
+    }
+  }
+
+  // Working dir
+  if (c.workingDir) {
+    lines.push(`    working_dir: ${c.workingDir}`);
+  }
+
+  // Networks (non-default)
+  const customNetworks = c.networks.filter(n => !["bridge", "host", "none"].includes(n));
+  if (customNetworks.length > 0) {
+    lines.push("    networks:");
+    for (const n of customNetworks) {
+      lines.push(`      - ${n}`);
+    }
+  }
+
+  // Top-level volumes
+  const namedVolumes = c.volumes.filter(v => v.type === "volume" || (!v.name.startsWith("/") && !v.name.startsWith(".")));
+  if (namedVolumes.length > 0) {
+    lines.push("");
+    lines.push("volumes:");
+    for (const v of namedVolumes) {
+      lines.push(`  ${v.name}:`);
+    }
+  }
+
+  // Top-level networks
+  if (customNetworks.length > 0) {
+    lines.push("");
+    lines.push("networks:");
+    for (const n of customNetworks) {
+      lines.push(`  ${n}:`);
+      lines.push(`    external: true`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 // ─── CONTAINER INSPECT (full config) ────────────────────────
 
 router.get("/inspect/:serverId/:containerName", async (req: Request, res: Response) => {
@@ -247,30 +338,49 @@ router.get("/inspect/:serverId/:containerName", async (req: Request, res: Respon
     // Networks
     const networks = Object.keys(ns.Networks || {});
 
-    // Try to find docker-compose file
-    let compose = "";
     const labels = config.Labels || {};
+    const containerName = data.Name?.replace(/^\//, "") || containerName;
+    const restartPolicy = hc.RestartPolicy?.Name || "no";
+
+    // Try to find original docker-compose file
+    let originalCompose = "";
     const composeProject = labels["com.docker.compose.project.working_dir"];
     const composeFile = labels["com.docker.compose.project.config_files"];
     if (composeProject || composeFile) {
       const path = composeFile || `${composeProject}/docker-compose.yml`;
-      compose = await sshExec(server, `cat "${path}" 2>/dev/null || cat "${composeProject}/docker-compose.yaml" 2>/dev/null || cat "${composeProject}/compose.yml" 2>/dev/null || echo ""`).catch(() => "");
+      originalCompose = await sshExec(server, `cat "${path}" 2>/dev/null || cat "${composeProject}/docker-compose.yaml" 2>/dev/null || cat "${composeProject}/compose.yml" 2>/dev/null || echo ""`).catch(() => "");
     }
 
+    // Always generate a compose from inspect data
+    const generatedCompose = generateComposeFromInspect({
+      name: containerName,
+      image: config.Image,
+      ports,
+      env: env.filter(e => !e.builtin),
+      volumes,
+      networks,
+      restartPolicy,
+      cmd: config.Cmd,
+      workingDir: config.WorkingDir,
+      labels,
+    });
+
     res.json({
-      name: data.Name?.replace(/^\//, ""),
+      name: containerName,
       image: config.Image,
       status: data.State?.Status || "unknown",
       ports,
       env,
       volumes,
       networks,
-      restartPolicy: hc.RestartPolicy?.Name || "no",
+      restartPolicy,
       cmd: config.Cmd,
       entrypoint: config.Entrypoint,
       workingDir: config.WorkingDir,
       labels,
-      compose,
+      compose: generatedCompose,
+      originalCompose: originalCompose || null,
+      hasOriginalCompose: !!originalCompose,
       created: data.Created,
     });
   } catch (err: any) {
