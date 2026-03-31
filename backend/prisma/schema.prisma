@@ -28,11 +28,14 @@ model Workspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members    WorkspaceMember[]
-  servers    Server[]
-  vaultGroups VaultGroup[]
+  members      WorkspaceMember[]
+  servers      Server[]
+  vaultGroups  VaultGroup[]
   healthChecks HealthCheck[]
-  webhooks   Webhook[]
+  webhooks     Webhook[]
+  domains      Domain[]
+  backups      Backup[]
+  backupSchedules BackupSchedule[]
 }
 
 model WorkspaceMember {
@@ -72,6 +75,71 @@ model Server {
   agentToken  AgentToken?
   containers  Container[]
   metrics     Metric[]
+  domains     Domain[]
+
+  @@index([workspaceId])
+}
+
+// ─── MODULE 7: DOMAINS (TRAEFIK) ────────────────────────────
+
+model Domain {
+  id            String   @id @default(uuid())
+  domain        String   // e.g. app.example.com
+  containerName String   // target container name
+  containerPort Int      @default(80) // container internal port
+  ssl           Boolean  @default(true)
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  serverId      String
+  server        Server    @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([domain])
+  @@index([serverId])
+  @@index([workspaceId])
+}
+
+// ─── MODULE 8: BACKUPS ──────────────────────────────────────
+
+model Backup {
+  id            String   @id @default(uuid())
+  name          String
+  type          String   @default("single") // single | stack
+  status        String   @default("pending") // pending | running | completed | failed
+  containerIds  String[] // container names to backup
+  serverId      String   // source server
+  serverName    String   // snapshot of server name
+  fileName      String?  // .opsbigbro file path on server
+  fileSizeMb    Float?
+  error         String?
+  metadata      String?  // JSON: image, ports, env, volumes, networks per container
+  createdAt     DateTime @default(now())
+  completedAt   DateTime?
+
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([serverId])
+}
+
+model BackupSchedule {
+  id            String   @id @default(uuid())
+  name          String
+  cron          String   // e.g. "0 2 * * *" = daily at 2am
+  containerIds  String[] // container names
+  serverId      String
+  enabled       Boolean  @default(true)
+  keepLast      Int      @default(5) // retention: keep last N backups
+  lastRunAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
 }

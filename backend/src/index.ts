@@ -17,6 +17,9 @@ import webhealthRoutes from "./modules/webhealth/routes";
 import telemetryRoutes from "./modules/telemetry/routes";
 import dockerWatcherRoutes from "./modules/docker-watcher/routes";
 import cloudIdeRoutes, { ideProxyMiddleware } from "./modules/cloud-ide/routes";
+import domainRoutes from "./modules/domains/routes";
+import backupRoutes from "./modules/backups/routes";
+import { startBackupWorker } from "./modules/backups/worker";
 
 const app = express();
 const server = http.createServer(app);
@@ -40,6 +43,8 @@ app.use("/api/telemetry", authMiddleware, telemetryRoutes);
 app.use("/api/containers", authMiddleware, dockerWatcherRoutes);
 app.use("/api/webhooks", authMiddleware, webhookRoutes);
 app.use("/api/ide", authMiddleware, cloudIdeRoutes);
+app.use("/api/domains", authMiddleware, domainRoutes);
+app.use("/api/backups", authMiddleware, backupRoutes);
 
 // IDE proxy (HTTP)
 app.use("/ide/proxy/:serverId", ideProxyMiddleware);
@@ -88,8 +93,9 @@ server.on("upgrade", (req, socket, head) => {
   // Other upgrades: ignore (don't destroy — may be handled elsewhere)
 });
 
-// Start health check worker
+// Start workers
 startHealthWorker();
+startBackupWorker();
 
 server.listen(env.PORT, () => {
   console.log(`[OBB] OpsBigBro backend running on http://localhost:${env.PORT}`);

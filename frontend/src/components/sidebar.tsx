@@ -15,6 +15,8 @@ import {
   Settings,
   LogOut,
   Eye,
+  Globe,
+  Archive,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 
@@ -25,6 +27,8 @@ const navigation = [
   { name: "WebHealth", href: "/health", icon: Activity },
   { name: "Telemetry", href: "/telemetry", icon: BarChart3 },
   { name: "Docker Manager", href: "/docker", icon: Container },
+  { name: "Domains", href: "/domains", icon: Globe },
+  { name: "Backups", href: "/backups", icon: Archive },
   { name: "Cloud IDE", href: "/ide", icon: Code2 },
   { name: "Webhooks", href: "/webhooks", icon: Bell },
 ];
