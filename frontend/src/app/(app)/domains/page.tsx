@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { api } from "@/lib/api";
 import {
   Globe, Plus, Trash2, Power, RefreshCw, Loader2, CheckCircle2, AlertCircle,
-  Rocket, ExternalLink, Shield,
+  Rocket, ExternalLink, Shield, Container,
 } from "lucide-react";
 
 interface DomainItem {
@@ -19,6 +19,7 @@ interface DomainItem {
 }
 
 interface ServerItem { id: string; name: string; host: string }
+interface ContainerOption { name: string; image: string; status: string }
 
 export default function DomainsPage() {
   const [domains, setDomains] = useState<DomainItem[]>([]);
@@ -27,6 +28,8 @@ export default function DomainsPage() {
   const [deploying, setDeploying] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [form, setForm] = useState({ domain: "", containerName: "", containerPort: 80, ssl: true, serverId: "" });
+  const [serverContainers, setServerContainers] = useState<ContainerOption[]>([]);
+  const [loadingContainers, setLoadingContainers] = useState(false);
 
   const load = () => api<DomainItem[]>("/domains").then(setDomains).catch(() => {});
   useEffect(() => {
@@ -34,10 +37,31 @@ export default function DomainsPage() {
     api<ServerItem[]>("/servers").then(setServers).catch(() => {});
   }, []);
 
+  const selectServer = async (serverId: string) => {
+    setForm({ ...form, serverId, containerName: "" });
+    setServerContainers([]);
+    if (!serverId) return;
+    setLoadingContainers(true);
+    try {
+      // Scan containers from this server
+      const all = await api<any[]>("/containers");
+      const fromServer = all.filter((c: any) => c.server?.id === serverId);
+      setServerContainers(fromServer.map((c: any) => ({ name: c.name, image: c.image, status: c.status })));
+      // If no containers in DB, try scanning
+      if (fromServer.length === 0) {
+        const scan = await api("/containers/scan", { method: "POST" });
+        const scanned = (scan.data || []).filter((c: any) => c.server?.id === serverId);
+        setServerContainers(scanned.map((c: any) => ({ name: c.name, image: c.image, status: c.status })));
+      }
+    } catch { }
+    setLoadingContainers(false);
+  };
+
   const create = async () => {
     await api("/domains", { method: "POST", body: form });
     setOpen(false);
     setForm({ domain: "", containerName: "", containerPort: 80, ssl: true, serverId: "" });
+    setServerContainers([]);
     load();
   };
 
@@ -97,33 +121,64 @@ export default function DomainsPage() {
               <div>
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Server</label>
                 <select className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                  value={form.serverId} onChange={e => setForm({ ...form, serverId: e.target.value })}>
+                  value={form.serverId} onChange={e => selectServer(e.target.value)}>
                   <option value="">Select server...</option>
                   {servers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.host})</option>)}
                 </select>
               </div>
+
+              {form.serverId && (
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Container</label>
+                  {loadingContainers ? (
+                    <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Scanning containers...
+                    </div>
+                  ) : serverContainers.length > 0 ? (
+                    <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                      {serverContainers.map(c => (
+                        <button key={c.name} onClick={() => setForm({ ...form, containerName: c.name })}
+                          className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center justify-between transition-colors ${
+                            form.containerName === c.name
+                              ? "bg-primary/10 text-primary border border-primary/20"
+                              : "bg-secondary text-muted-foreground hover:text-foreground border border-transparent"
+                          }`}>
+                          <div className="flex items-center gap-2">
+                            <Container className="h-3.5 w-3.5" />
+                            <span className="font-mono">{c.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">{c.image}</span>
+                            <span className={`h-1.5 w-1.5 rounded-full ${c.status === "running" ? "bg-green-400" : "bg-gray-500"}`} />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">No containers found. Deploy one first in Docker Manager.</p>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Domain</label>
                 <Input className="mt-1 font-mono" placeholder="app.example.com" value={form.domain}
                   onChange={e => setForm({ ...form, domain: e.target.value })} />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Container Name</label>
-                  <Input className="mt-1 font-mono" placeholder="my-app" value={form.containerName}
-                    onChange={e => setForm({ ...form, containerName: e.target.value })} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Port</label>
-                  <Input className="mt-1" type="number" value={form.containerPort}
-                    onChange={e => setForm({ ...form, containerPort: parseInt(e.target.value) || 80 })} />
-                </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Container Internal Port</label>
+                <Input className="mt-1" type="number" value={form.containerPort}
+                  onChange={e => setForm({ ...form, containerPort: parseInt(e.target.value) || 80 })} />
+                <p className="text-[10px] text-muted-foreground mt-1">The port the app listens on inside the container (usually 80, 3000, 8080)</p>
               </div>
+
               <div className="flex items-center gap-2">
                 <input type="checkbox" id="ssl" checked={form.ssl}
                   onChange={e => setForm({ ...form, ssl: e.target.checked })} className="accent-primary" />
                 <label htmlFor="ssl" className="text-sm">Enable SSL (Let's Encrypt)</label>
               </div>
+
               <Button className="w-full" onClick={create} disabled={!form.domain || !form.containerName || !form.serverId}>
                 Add Domain Route
               </Button>

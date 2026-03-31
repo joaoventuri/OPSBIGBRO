@@ -44,7 +44,13 @@ app.use("/api/containers", authMiddleware, dockerWatcherRoutes);
 app.use("/api/webhooks", authMiddleware, webhookRoutes);
 app.use("/api/ide", authMiddleware, cloudIdeRoutes);
 app.use("/api/domains", authMiddleware, domainRoutes);
-app.use("/api/backups", authMiddleware, backupRoutes);
+// Backup download accepts ?token= query param (browser can't send Auth header on direct links)
+app.use("/api/backups", (req, res, next) => {
+  if (!req.headers.authorization && req.query.token) {
+    req.headers.authorization = `Bearer ${req.query.token}`;
+  }
+  authMiddleware(req, res, next);
+}, backupRoutes);
 
 // IDE proxy (HTTP)
 app.use("/ide/proxy/:serverId", ideProxyMiddleware);
