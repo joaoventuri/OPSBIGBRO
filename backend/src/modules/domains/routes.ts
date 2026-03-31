@@ -99,7 +99,7 @@ router.post("/traefik-install/:serverId", async (req: Request, res: Response) =>
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik_letsencrypt:/letsencrypt
-      - ./dynamic:/etc/traefik/dynamic
+      - ./traefik-dynamic:/etc/traefik/dynamic
     networks:
       - obb-proxy
 
@@ -110,12 +110,12 @@ networks:
 volumes:
   traefik_letsencrypt:
 `;
-    await sshExec(server, 'mkdir -p /opt/obb-traefik/dynamic');
+    await sshExec(server, 'mkdir -p /opt/obb-traefik/traefik-dynamic');
     await sshWriteFile(server, "/opt/obb-traefik/docker-compose.yml", compose);
     await sshExec(server, 'docker network create obb-proxy 2>/dev/null || true');
 
     // Write empty routes if none exist
-    await sshExec(server, 'test -f /opt/obb-traefik/dynamic/routes.yml || echo "{}" > /opt/obb-traefik/dynamic/routes.yml');
+    await sshExec(server, 'test -f /opt/obb-traefik/traefik-dynamic/routes.yml || echo "{}" > /opt/obb-traefik/traefik-dynamic/routes.yml');
 
     const out = await sshExec(server, `cd /opt/obb-traefik && ${cc} pull 2>&1 && ${cc} up -d 2>&1`, 120000);
     res.json({ success: true, output: out });
@@ -260,7 +260,7 @@ async function syncRoutes(server: any, workspaceId: string) {
     : "{}";
 
   // Write config + connect containers to network + restart Traefik
-  await sshWriteFile(server, "/opt/obb-traefik/dynamic/routes.yml", yaml);
+  await sshWriteFile(server, "/opt/obb-traefik/traefik-dynamic/routes.yml", yaml);
 
   for (const d of domains) {
     await sshExec(server, `docker network connect obb-proxy ${d.containerName} 2>/dev/null || true`);
