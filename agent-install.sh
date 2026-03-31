@@ -1,12 +1,12 @@
 #!/bin/bash
 set -e
 
-# OpsBigBro Agent Installer
-# Usage: curl -fsSL https://your-obb-server/agent/install.sh | bash -s -- --token=XXX --api=https://your-obb-server
+# ServerLess Agent Installer
+# Usage: curl -fsSL https://your-sl-server/agent/install.sh | bash -s -- --token=XXX --api=https://your-sl-server
 
 GREEN='\033[0;32m'
 NC='\033[0m'
-log() { echo -e "${GREEN}[OBB Agent]${NC} $1"; }
+log() { echo -e "${GREEN}[SL Agent]${NC} $1"; }
 
 TOKEN=""
 API_URL=""
@@ -29,10 +29,10 @@ case $ARCH in
   *) echo "Unsupported arch: $ARCH"; exit 1 ;;
 esac
 
-log "Installing OpsBigBro Agent (${ARCH})"
+log "Installing ServerLess Agent (${ARCH})"
 
 # Check if Go is available to build, otherwise download pre-built
-AGENT_DIR="/opt/opsbigbro-agent"
+AGENT_DIR="/opt/serverless-agent"
 mkdir -p "$AGENT_DIR"
 
 if command -v go &>/dev/null; then
@@ -97,7 +97,7 @@ PEOF
     -d "$PAYLOAD" > /dev/null 2>&1 && printf "." || printf "x"
 }
 
-echo "[OBB Agent] Running (interval: ${INTERVAL}s)"
+echo "[SL Agent] Running (interval: ${INTERVAL}s)"
 while true; do
   collect_and_send
   sleep $INTERVAL
@@ -110,9 +110,9 @@ sed -i "s|__API_URL__|${API_URL}|g" "$AGENT_DIR/agent.sh"
 chmod +x "$AGENT_DIR/agent.sh"
 
 # Create systemd service
-cat > /etc/systemd/system/opsbigbro-agent.service << SVCEOF
+cat > /etc/systemd/system/serverless-agent.service << SVCEOF
 [Unit]
-Description=OpsBigBro Monitoring Agent
+Description=ServerLess Monitoring Agent
 After=network.target
 
 [Service]
@@ -122,16 +122,16 @@ Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=obb-agent
+SyslogIdentifier=sl-agent
 
 [Install]
 WantedBy=multi-user.target
 SVCEOF
 
 systemctl daemon-reload
-systemctl enable opsbigbro-agent
-systemctl start opsbigbro-agent
+systemctl enable serverless-agent
+systemctl start serverless-agent
 
 log "Agent installed and running!"
-log "Status: systemctl status opsbigbro-agent"
-log "Logs:   journalctl -u opsbigbro-agent -f"
+log "Status: systemctl status serverless-agent"
+log "Logs:   journalctl -u serverless-agent -f"

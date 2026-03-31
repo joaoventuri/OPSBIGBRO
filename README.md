@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/OpsBigBro-v0.1.0-22c55e?style=for-the-badge&labelColor=0a0a0a" />
+  <img src="https://img.shields.io/badge/ServerLess-v0.1.0-22c55e?style=for-the-badge&labelColor=0a0a0a" />
   <img src="https://img.shields.io/badge/Node.js-TypeScript-3178c6?style=for-the-badge&labelColor=0a0a0a&logo=typescript&logoColor=white" />
   <img src="https://img.shields.io/badge/Next.js-React-000?style=for-the-badge&labelColor=0a0a0a&logo=nextdotjs&logoColor=white" />
   <img src="https://img.shields.io/badge/PostgreSQL-TimescaleDB-336791?style=for-the-badge&labelColor=0a0a0a&logo=postgresql&logoColor=white" />
   <img src="https://img.shields.io/badge/Go-Agent-00ADD8?style=for-the-badge&labelColor=0a0a0a&logo=go&logoColor=white" />
 </p>
 
-<h1 align="center">OpsBigBro</h1>
+<h1 align="center">ServerLess</h1>
 <p align="center"><strong>Unified Infrastructure Command Center</strong></p>
 <p align="center">
   Server management, credential vault, uptime monitoring, Docker manager,<br>
@@ -17,7 +17,7 @@
 
 ## Overview
 
-OpsBigBro (OBB) is a self-hosted platform for managing servers, credentials, containers and infrastructure monitoring. Built for teams and solo developers who want full control over their infrastructure without vendor lock-in.
+ServerLess (SL) is a self-hosted platform for managing servers, credentials, containers and infrastructure monitoring. Built for teams and solo developers who want full control over their infrastructure without vendor lock-in.
 
 ### Modules
 
@@ -72,7 +72,7 @@ Browser (localhost:3000)
   |
   └── Remote Servers
         ├── SSH connections (terminal, IDE, Docker)
-        └── OBB Agent → POST /api/telemetry/ingest
+        └── SL Agent → POST /api/telemetry/ingest
 ```
 
 ---
@@ -106,8 +106,8 @@ User ←→ WorkspaceMember ←→ Workspace
 ### 1. Clone
 
 ```bash
-git clone https://github.com/joaoventuri/OPSBIGBRO.git
-cd OPSBIGBRO
+git clone https://github.com/joaoventuri/ServerLess.git
+cd ServerLess
 ```
 
 ### 2. Start databases
@@ -117,7 +117,7 @@ docker compose up -d
 ```
 
 This starts:
-- **PostgreSQL** (TimescaleDB) on port `5432` — user: `opsbigbro`, pass: `opsbigbro`
+- **PostgreSQL** (TimescaleDB) on port `5432` — user: `serverless`, pass: `serverless`
 - **Redis** on port `6379`
 
 ### 3. Backend
@@ -137,7 +137,7 @@ Backend runs on **http://localhost:3001**
 #### Backend `.env`
 
 ```env
-DATABASE_URL="postgresql://opsbigbro:opsbigbro@localhost:5432/opsbigbro?schema=public"
+DATABASE_URL="postgresql://serverless:serverless@localhost:5432/serverless?schema=public"
 REDIS_URL="redis://localhost:6379"
 JWT_SECRET="any-secret-string-for-dev"
 PORT=3001
@@ -160,7 +160,7 @@ Open **http://localhost:3002** in your browser.
 
 | Field | Value |
 |-------|-------|
-| Email | `admin@opsbigbro.local` |
+| Email | `admin@serverless.local` |
 | Password | `admin123` |
 
 ---
@@ -170,7 +170,7 @@ Open **http://localhost:3002** in your browser.
 ### One-liner install (Ubuntu/Debian)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/joaoventuri/OPSBIGBRO/master/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/joaoventuri/ServerLess/master/install.sh | sudo bash
 ```
 
 ### With options
@@ -192,12 +192,12 @@ sudo bash install.sh --port=8080 --no-ssl
 2. Installs system packages (curl, git, build-essential, nginx, certbot)
 3. Installs Docker & Docker Compose
 4. Installs Node.js 22
-5. Creates `opsbigbro` system user and `/opt/opsbigbro` directory
+5. Creates `serverless` system user and `/opt/serverless` directory
 6. Starts PostgreSQL (TimescaleDB) + Redis via Docker Compose with random passwords
 7. Installs backend & frontend dependencies
 8. Runs Prisma migrations and seeds admin account
 9. Builds Next.js for production
-10. Creates systemd services (`opsbigbro-backend`, `opsbigbro-frontend`)
+10. Creates systemd services (`serverless-backend`, `serverless-frontend`)
 11. Configures Nginx reverse proxy (HTTP, WebSocket, API)
 12. Sets up SSL via Let's Encrypt (if `--domain` provided)
 13. Configures UFW firewall rules
@@ -209,7 +209,7 @@ After installation, the script prints:
 
 ```
 ╔══════════════════════════════════════════╗
-║   OpsBigBro installed successfully!      ║
+║   ServerLess installed successfully!      ║
 ╚══════════════════════════════════════════╝
 
   Status:
@@ -220,7 +220,7 @@ After installation, the script prints:
 
   Access:
     URL:       https://ops.yourdomain.com
-    Email:     admin@opsbigbro.local
+    Email:     admin@serverless.local
     Password:  (auto-generated)
 ```
 
@@ -228,28 +228,28 @@ After installation, the script prints:
 
 ```bash
 # Status
-systemctl status opsbigbro-backend
-systemctl status opsbigbro-frontend
+systemctl status serverless-backend
+systemctl status serverless-frontend
 
 # Restart
-sudo systemctl restart opsbigbro-backend
-sudo systemctl restart opsbigbro-frontend
+sudo systemctl restart serverless-backend
+sudo systemctl restart serverless-frontend
 
 # Logs
-journalctl -u opsbigbro-backend -f
-journalctl -u opsbigbro-frontend -f
+journalctl -u serverless-backend -f
+journalctl -u serverless-frontend -f
 ```
 
 ### Update
 
 ```bash
-sudo bash /opt/opsbigbro/update.sh
+sudo bash /opt/serverless/update.sh
 ```
 
 ### Uninstall
 
 ```bash
-sudo bash /opt/opsbigbro/install.sh --uninstall
+sudo bash /opt/serverless/install.sh --uninstall
 ```
 
 ---
@@ -276,9 +276,9 @@ curl -fsSL https://your-obb-server/agent/install.sh | bash -s -- \
 ### Agent management
 
 ```bash
-systemctl status opsbigbro-agent
-systemctl restart opsbigbro-agent
-journalctl -u opsbigbro-agent -f
+systemctl status serverless-agent
+systemctl restart serverless-agent
+journalctl -u serverless-agent -f
 ```
 
 ---
@@ -451,7 +451,7 @@ All protected routes require `Authorization: Bearer <token>` header.
 ## Project Structure
 
 ```
-OPSBIGBRO/
+SERVERLESS/
 ├── backend/
 │   ├── prisma/
 │   │   ├── schema.prisma          # Data model (10 entities)
@@ -528,14 +528,14 @@ netstat -tlnp | grep -E "3001|5432|6379"
 docker compose ps
 
 # Check logs
-journalctl -u opsbigbro-backend -f  # production
+journalctl -u serverless-backend -f  # production
 npm run dev                           # development
 ```
 
 ### Database connection failed
 ```bash
 # Verify PostgreSQL is running
-docker compose exec postgres pg_isready -U opsbigbro
+docker compose exec postgres pg_isready -U serverless
 
 # Reset database
 npx prisma db push --force-reset
