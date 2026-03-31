@@ -36,11 +36,52 @@ export const STACK_TEMPLATES: StackTemplate[] = [
       WEBHOOK_URL: \${WEBHOOK_URL:-http://localhost:5678/}
       GENERIC_TIMEZONE: \${TIMEZONE:-America/Sao_Paulo}
       N8N_ENCRYPTION_KEY: \${N8N_ENCRYPTION_KEY:-change-me-please}
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: n8n-db
+      DB_POSTGRESDB_PORT: "5432"
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: \${DB_PASSWORD:-n8n123}
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: n8n-redis
+      QUEUE_BULL_REDIS_PORT: "6379"
     volumes:
       - n8n_data:/home/node/.n8n
+    depends_on:
+      n8n-db:
+        condition: service_healthy
+      n8n-redis:
+        condition: service_healthy
+
+  n8n-db:
+    image: postgres:16-alpine
+    container_name: n8n-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: n8n
+      POSTGRES_PASSWORD: \${DB_PASSWORD:-n8n123}
+      POSTGRES_DB: n8n
+    volumes:
+      - n8n_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  n8n-redis:
+    image: redis:7-alpine
+    container_name: n8n-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
-  n8n_data:`,
+  n8n_data:
+  n8n_pgdata:`,
   },
   {
     slug: "nocodb",
