@@ -546,8 +546,16 @@ router.post("/deploy", async (req: Request, res: Response) => {
         `echo "${registryPass}" | docker login ${registry} -u "${registryUser}" --password-stdin 2>&1`);
     }
 
-    // Pull image
+    // Pull image — check for auth errors
     const pullOut = await sshExec(server, `docker pull ${image} 2>&1`, 120000);
+    if (pullOut.includes("denied") || pullOut.includes("unauthorized") || pullOut.includes("not found")) {
+      return res.status(400).json({
+        error: `Pull failed: ${pullOut.trim().split("\n").pop()}`,
+        hint: pullOut.includes("denied") || pullOut.includes("unauthorized")
+          ? "This image requires authentication. Fill in the Private Registry Authentication fields and try again."
+          : "Image not found. Check the image name and tag.",
+      });
+    }
 
     // Build docker run command
     let cmd = "docker run -d";
@@ -602,6 +610,14 @@ router.post("/deploy", async (req: Request, res: Response) => {
     if (command) cmd += ` ${command}`;
 
     const runOut = await sshExec(server, cmd + " 2>&1");
+
+    // Check if run failed
+    if (runOut.includes("Error") || runOut.includes("error") || runOut.includes("Conflict")) {
+      return res.status(400).json({ error: `Container failed to start: ${runOut.trim()}` });
+    }
+
+    // Rescan to pick up new container
+    await quickRescan(server);
 
     res.json({ success: true, containerId: runOut.trim().slice(0, 12), pullOutput: pullOut, image });
   } catch (err: any) {
