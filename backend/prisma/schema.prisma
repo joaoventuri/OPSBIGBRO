@@ -36,6 +36,7 @@ model Workspace {
   domains      Domain[]
   backups      Backup[]
   backupSchedules BackupSchedule[]
+  stacks       Stack[]
 }
 
 model WorkspaceMember {
@@ -142,6 +143,28 @@ model BackupSchedule {
   workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
+}
+
+// ─── MODULE 9: STACKS ───────────────────────────────────────
+
+model Stack {
+  id            String   @id @default(uuid())
+  name          String
+  description   String?
+  templateSlug  String?  // if created from marketplace template
+  compose       String   // docker-compose.yml content
+  status        String   @default("stopped") // stopped | running | deploying | error
+  error         String?
+  containerNames String[] // container names managed by this stack
+  serverId      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([serverId])
 }
 
 // ─── MODULE 2: ACCESS HUB (VAULT) ──────────────────────────

@@ -19,6 +19,7 @@ import dockerWatcherRoutes from "./modules/docker-watcher/routes";
 import cloudIdeRoutes, { ideProxyMiddleware } from "./modules/cloud-ide/routes";
 import domainRoutes from "./modules/domains/routes";
 import backupRoutes from "./modules/backups/routes";
+import stackRoutes from "./modules/stacks/routes";
 import { startBackupWorker } from "./modules/backups/worker";
 
 const app = express();
@@ -44,6 +45,7 @@ app.use("/api/containers", authMiddleware, dockerWatcherRoutes);
 app.use("/api/webhooks", authMiddleware, webhookRoutes);
 app.use("/api/ide", authMiddleware, cloudIdeRoutes);
 app.use("/api/domains", authMiddleware, domainRoutes);
+app.use("/api/stacks", authMiddleware, stackRoutes);
 // Backup download accepts ?token= query param (browser can't send Auth header on direct links)
 app.use("/api/backups", (req, res, next) => {
   if (!req.headers.authorization && req.query.token) {

@@ -17,6 +17,7 @@ import {
   Eye,
   Globe,
   Archive,
+  Layers,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 
@@ -27,6 +28,7 @@ const navigation = [
   { name: "WebHealth", href: "/health", icon: Activity },
   { name: "Telemetry", href: "/telemetry", icon: BarChart3 },
   { name: "Docker Manager", href: "/docker", icon: Container },
+  { name: "Stacks", href: "/stacks", icon: Layers },
   { name: "Domains", href: "/domains", icon: Globe },
   { name: "Backups", href: "/backups", icon: Archive },
   { name: "Cloud IDE", href: "/ide", icon: Code2 },
