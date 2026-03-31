@@ -506,6 +506,106 @@ function DeployTab({ servers, onDeployed, initialImage }: { servers: ServerItem[
     setDeploying(false);
   };
 
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeText, setComposeText] = useState("");
+
+  // Parse docker-compose.yml and populate form fields
+  const importCompose = () => {
+    if (!composeText.trim()) return;
+    const lines = composeText.split("\n");
+
+    // Find first service
+    let inService = false;
+    let serviceIndent = 0;
+    let svcName = "";
+    let svcImage = "";
+    const svcPorts: any[] = [];
+    const svcEnvs: any[] = [];
+    const svcVolumes: any[] = [];
+    let svcRestart = "unless-stopped";
+    let currentSection = "";
+
+    for (const line of lines) {
+      const trimmed = line.trimEnd();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const indent = line.length - line.trimStart().length;
+
+      // Detect services block
+      if (trimmed === "services:") { inService = true; continue; }
+
+      if (inService && !svcName) {
+        // First service name
+        const m = trimmed.match(/^[\w][\w.-]*:/);
+        if (m && indent > 0 && indent <= 4) {
+          svcName = trimmed.replace(":", "").trim();
+          serviceIndent = indent;
+          continue;
+        }
+      }
+
+      if (svcName && indent > serviceIndent) {
+        // Inside first service
+        const key = trimmed.split(":")[0].trim();
+
+        if (key === "image") svcImage = trimmed.split(":").slice(1).join(":").trim();
+        else if (key === "container_name") svcName = trimmed.split(":").slice(1).join(":").trim();
+        else if (key === "restart") svcRestart = trimmed.split(":").slice(1).join(":").trim();
+        else if (key === "ports") { currentSection = "ports"; continue; }
+        else if (key === "environment") { currentSection = "env"; continue; }
+        else if (key === "volumes") { currentSection = "volumes"; continue; }
+        else if (key === "depends_on" || key === "healthcheck" || key === "command" || key === "entrypoint" || key === "networks" || key === "labels" || key === "deploy") {
+          currentSection = ""; continue;
+        }
+
+        if (currentSection === "ports" && trimmed.trim().startsWith("-")) {
+          const raw = trimmed.replace(/^[\s-"']+/, "").replace(/["']+$/, "");
+          const parts = raw.split(":");
+          if (parts.length >= 2) {
+            svcPorts.push({ host: parts[0], container: parts[1].split("/")[0], protocol: parts[1].includes("/") ? parts[1].split("/")[1] : "tcp" });
+          }
+        }
+        if (currentSection === "env") {
+          if (trimmed.trim().startsWith("-")) {
+            // List format: - KEY=value
+            const raw = trimmed.replace(/^[\s-]+/, "");
+            const eq = raw.indexOf("=");
+            if (eq > 0) svcEnvs.push({ key: raw.slice(0, eq), value: raw.slice(eq + 1) });
+          } else if (trimmed.includes(":") && !["environment", "ports", "volumes"].includes(key)) {
+            // Map format: KEY: value
+            const k = trimmed.split(":")[0].trim();
+            let v = trimmed.split(":").slice(1).join(":").trim();
+            // Strip ${VAR:-default} to just the default
+            const defMatch = v.match(/\$\{[^:}]+:-([^}]*)\}/);
+            if (defMatch) v = defMatch[1];
+            else if (v.startsWith("${")) v = ""; // No default, leave empty for user
+            svcEnvs.push({ key: k, value: v });
+          }
+        }
+        if (currentSection === "volumes" && trimmed.trim().startsWith("-")) {
+          const raw = trimmed.replace(/^[\s-"']+/, "").replace(/["']+$/, "");
+          const parts = raw.split(":");
+          if (parts.length >= 2) {
+            svcVolumes.push({ host: parts[0], container: parts[1] });
+          }
+        }
+      }
+
+      // Detect second service or top-level key → stop
+      if (svcName && indent === serviceIndent && trimmed.match(/^[\w][\w.-]*:/)) break;
+      if (svcName && indent === 0 && trimmed.match(/^[a-z]/)) break;
+    }
+
+    // Apply to form
+    if (svcImage) setForm(f => ({ ...f, image: svcImage, name: svcName, restart: svcRestart }));
+    if (svcPorts.length > 0) setPorts(svcPorts);
+    if (svcEnvs.length > 0) setEnvVars(svcEnvs);
+    if (svcVolumes.length > 0) setVolumes(svcVolumes);
+    setComposeOpen(false);
+    setComposeText("");
+    setToast({ type: "success", message: `Imported: ${svcImage || svcName} — ${svcPorts.length} ports, ${svcEnvs.length} env vars, ${svcVolumes.length} volumes` });
+    setTimeout(() => setToast(null), 5000);
+  };
+
   const addRow = (setter: Function, empty: any) => setter((prev: any[]) => [...prev, empty]);
   const removeRow = (setter: Function, idx: number) => setter((prev: any[]) => prev.filter((_: any, i: number) => i !== idx));
   const updateRow = (setter: Function, idx: number, field: string, value: string) =>
@@ -514,6 +614,29 @@ function DeployTab({ servers, onDeployed, initialImage }: { servers: ServerItem[
   return (
     <div className="max-w-2xl">
       {toast && <Toast toast={toast} onClose={() => setToast(null)} />}
+
+      {/* Import Compose button */}
+      <div className="mb-4">
+        <Button variant="outline" className="w-full" onClick={() => setComposeOpen(!composeOpen)}>
+          <FileText className="h-4 w-4 mr-2" />
+          {composeOpen ? "Close" : "Import from docker-compose.yml"}
+        </Button>
+        {composeOpen && (
+          <div className="mt-2 space-y-2">
+            <textarea
+              className="w-full rounded-md border border-border bg-black px-4 py-3 text-xs font-mono text-green-400 resize-y focus:outline-none focus:ring-1 focus:ring-ring"
+              style={{ minHeight: "200px" }}
+              value={composeText}
+              onChange={e => setComposeText(e.target.value)}
+              placeholder="Paste your docker-compose.yml here..."
+              spellCheck={false}
+            />
+            <Button className="w-full" onClick={importCompose} disabled={!composeText.trim()}>
+              Parse & Fill Form
+            </Button>
+          </div>
+        )}
+      </div>
 
       <div className="space-y-4">
         {/* Server */}
