@@ -423,7 +423,9 @@ router.post("/update/:serverId/:containerName", async (req: Request, res: Respon
     if (compose && compose.trim()) {
       const composeDir = `/opt/obb-compose/${containerName}`;
       await sshExec(server, `mkdir -p "${composeDir}"`);
-      await sshExec(server, `cat > "${composeDir}/docker-compose.yml" << 'CEOF'\n${compose}\nCEOF`);
+      // Write via base64 to preserve ${VAR} syntax and special characters
+      const composeB64 = Buffer.from(compose).toString("base64");
+      await sshExec(server, `printf '%s' '${composeB64}' | base64 -d > "${composeDir}/docker-compose.yml"`);
       await sshExec(server, `cd "${composeDir}" && ${loginCmd}docker compose down --remove-orphans 2>/dev/null; ${pullLatest ? "docker compose pull 2>&1;" : ""} docker compose up -d 2>&1`, 120000);
       // Re-scan to pick up new containers
       await quickRescan(server);
