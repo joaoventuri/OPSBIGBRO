@@ -349,19 +349,54 @@ router.get("/:id/logs", async (req: Request, res: Response) => {
 // ─── Helper ─────────────────────────────────────────────────
 
 function extractServiceNames(compose: string): string[] {
+  // Docker compose keys that are NOT service names
+  const reserved = new Set([
+    "image", "container_name", "restart", "ports", "environment", "volumes",
+    "depends_on", "command", "entrypoint", "networks", "labels", "deploy",
+    "healthcheck", "build", "cap_add", "cap_drop", "security_opt", "sysctls",
+    "working_dir", "shm_size", "stdin_open", "tty", "logging", "extra_hosts",
+    "ulimits", "test", "interval", "timeout", "retries", "condition",
+    "driver", "external", "name",
+  ]);
+
   const names: string[] = [];
   const lines = compose.split("\n");
   let inServices = false;
+  let serviceIndent = -1;
 
   for (const line of lines) {
-    // Detect "services:" at top level (no leading spaces)
-    if (line.match(/^services:\s*$/)) { inServices = true; continue; }
+    const trimmed = line.trimEnd();
+    if (!trimmed) continue;
+
+    // Count leading spaces
+    const indent = line.length - line.trimStart().length;
+
+    // Detect "services:" at indent 0
+    if (trimmed.match(/^services:\s*$/)) {
+      inServices = true;
+      serviceIndent = -1;
+      continue;
+    }
+
+    // Stop at next top-level key
+    if (inServices && indent === 0 && trimmed.match(/^\w/)) {
+      inServices = false;
+      continue;
+    }
+
     if (inServices) {
-      // Service name: exactly 2 spaces (or 1 tab) + word + colon
-      const match = line.match(/^[ \t]{1,4}([\w][\w.-]*):\s*$/);
-      if (match) names.push(match[1]);
-      // Stop at next top-level key (no indent)
-      if (line.match(/^[a-z]/) && !line.match(/^\s/)) inServices = false;
+      // First indented key after "services:" defines the service indent level
+      if (serviceIndent === -1 && indent > 0 && trimmed.endsWith(":")) {
+        serviceIndent = indent;
+      }
+
+      // Service names are at exactly the service indent level
+      if (serviceIndent > 0 && indent === serviceIndent) {
+        const match = trimmed.match(/^([\w][\w.-]*):\s*$/);
+        if (match && !reserved.has(match[1])) {
+          names.push(match[1]);
+        }
+      }
     }
   }
   return names;
