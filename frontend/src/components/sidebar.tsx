@@ -42,7 +42,10 @@ export function Sidebar() {
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-border bg-[#0c0c0c] flex flex-col">
       {/* Logo */}
       <div className="flex h-16 items-center justify-center border-b border-border px-4">
-        <span className="text-xl font-bold tracking-tight" style={{
+        <span className="tracking-tight" style={{
+          fontSize: "2.5rem",
+          lineHeight: "1.75rem",
+          fontWeight: 1000,
           color: "#4ade80",
           textShadow: "0 0 7px #22c55e, 0 0 20px #22c55e80, 0 0 40px #22c55e40",
           fontFamily: "'Inter', system-ui, sans-serif",

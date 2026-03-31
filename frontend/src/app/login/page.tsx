@@ -61,7 +61,10 @@ export default function LoginPage() {
       <Card className="w-full max-w-md border-border/50 bg-card/80 backdrop-blur-sm relative z-10">
         <CardHeader className="text-center pb-2">
           <div className="flex items-center justify-center mb-4">
-            <span className="text-3xl font-bold tracking-tight" style={{
+            <span className="tracking-tight" style={{
+              fontSize: "2.5rem",
+              lineHeight: "1.75rem",
+              fontWeight: 1000,
               color: "#4ade80",
               textShadow: "0 0 7px #22c55e, 0 0 20px #22c55e80, 0 0 40px #22c55e40",
             }}>
