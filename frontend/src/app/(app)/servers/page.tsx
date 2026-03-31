@@ -294,9 +294,6 @@ function TerminalDialog({ serverId, onClose }: { serverId: string; onClose: () =
     async function init() {
       const { Terminal } = await import("@xterm/xterm");
       const { FitAddon } = await import("@xterm/addon-fit");
-      const { WebLinksAddon } = await import("@xterm/addon-web-links");
-      const { ClipboardAddon } = await import("@xterm/addon-clipboard");
-      const { Unicode11Addon } = await import("@xterm/addon-unicode11");
 
       if (!termRef.current) return;
 
@@ -307,8 +304,6 @@ function TerminalDialog({ serverId, onClose }: { serverId: string; onClose: () =
         scrollback: 10000,
         fastScrollModifier: "shift",
         macOptionIsMeta: true,
-        allowProposedApi: true,
-        rightClickSelectsWord: true,
         theme: {
           background: "#0a0a0a",
           foreground: "#d4d4d4",
@@ -335,30 +330,20 @@ function TerminalDialog({ serverId, onClose }: { serverId: string; onClose: () =
         },
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace",
         fontSize: 14,
-        fontWeight: "400",
-        fontWeightBold: "600",
         lineHeight: 1.2,
-        letterSpacing: 0,
       });
 
-      // Load addons
+      // Core addon
       fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
-      term.loadAddon(new WebLinksAddon());
-      term.loadAddon(new Unicode11Addon());
-      term.unicode.activeVersion = "11";
 
-      // Clipboard addon for native copy/paste
-      try { term.loadAddon(new ClipboardAddon()); } catch { /* browser may block */ }
-
-      // Try WebGL renderer for GPU acceleration
-      try {
-        const { WebglAddon } = await import("@xterm/addon-webgl");
-        term.loadAddon(new WebglAddon());
-      } catch { /* fallback to canvas */ }
+      // Optional addons (don't crash if they fail)
+      try { const { WebLinksAddon } = await import("@xterm/addon-web-links"); term.loadAddon(new WebLinksAddon()); } catch {}
+      try { const { Unicode11Addon } = await import("@xterm/addon-unicode11"); term.loadAddon(new Unicode11Addon()); term.unicode.activeVersion = "11"; } catch {}
 
       term.open(termRef.current);
-      fitAddon.fit();
+      // Delay fit slightly to ensure DOM is ready
+      setTimeout(() => { try { fitAddon.fit(); } catch {} }, 100);
 
       // Custom key handler for clipboard
       term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
@@ -435,7 +420,7 @@ function TerminalDialog({ serverId, onClose }: { serverId: string; onClose: () =
       term.focus();
     }
 
-    init();
+    init().catch(err => console.error("[Terminal] Init failed:", err));
 
     return () => {
       if (resizeHandler) window.removeEventListener("resize", resizeHandler);
