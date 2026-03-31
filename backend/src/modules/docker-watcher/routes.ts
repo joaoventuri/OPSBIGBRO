@@ -539,29 +539,22 @@ router.post("/deploy", async (req: Request, res: Response) => {
   try {
     const server = await getServer(serverId, req.auth!.workspaceId);
 
-    // Registry login if auth provided — auto-detect registry from image name
+    // Pull image — login + pull in same SSH session for auth to persist
+    let pullCmd = "";
     if (registryUser && registryPass) {
       let registry = registryUrl || "";
       if (!registry) {
-        // Auto-detect from image name
         if (image.startsWith("ghcr.io/")) registry = "ghcr.io";
         else if (image.includes(".") && image.includes("/")) registry = image.split("/")[0];
-        else registry = "https://index.docker.io/v1/"; // Docker Hub
+        else registry = "https://index.docker.io/v1/";
       }
-      const loginOut = await sshExec(server,
-        `echo "${registryPass}" | docker login ${registry} -u "${registryUser}" --password-stdin 2>&1`);
-      if (loginOut.includes("Login Succeeded")) {
-        console.log(`[Deploy] Logged in to ${registry}`);
-      } else {
-        console.log(`[Deploy] Login to ${registry}: ${loginOut}`);
-        if (loginOut.includes("unauthorized") || loginOut.includes("denied")) {
-          return res.status(401).json({ error: `Registry login failed for ${registry}: ${loginOut.trim().split("\n").pop()}` });
-        }
-      }
+      // Login and pull in the SAME command so auth persists
+      pullCmd = `echo "${registryPass}" | docker login ${registry} -u "${registryUser}" --password-stdin 2>&1 && docker pull ${image} 2>&1`;
+    } else {
+      pullCmd = `docker pull ${image} 2>&1`;
     }
 
-    // Pull image — check for auth errors
-    const pullOut = await sshExec(server, `docker pull ${image} 2>&1`, 120000);
+    const pullOut = await sshExec(server, pullCmd, 180000);
     if (pullOut.includes("denied") || pullOut.includes("unauthorized") || pullOut.includes("not found")) {
       return res.status(400).json({
         error: `Pull failed: ${pullOut.trim().split("\n").pop()}`,
