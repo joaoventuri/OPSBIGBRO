@@ -115,182 +115,127 @@ router.post("/import", async (req: Request, res: Response) => {
 
   try {
     await prisma.$transaction(async (tx) => {
-      // 1. Users (skip if email already exists)
+      // 1. Users — upsert by id (overwrite everything)
       for (const user of data.users || []) {
-        const exists = await tx.user.findUnique({ where: { email: user.email } });
-        if (!exists) {
-          await tx.user.create({ data: { ...user, createdAt: new Date(user.createdAt), updatedAt: new Date(user.updatedAt) } });
-          stats.users++;
-        }
+        const d = { ...user, createdAt: new Date(user.createdAt), updatedAt: new Date(user.updatedAt) };
+        await tx.user.upsert({ where: { id: user.id }, create: d, update: d });
+        stats.users++;
       }
 
-      // 2. Workspaces (skip if slug already exists)
+      // 2. Workspaces
       for (const ws of data.workspaces || []) {
-        const exists = await tx.workspace.findUnique({ where: { slug: ws.slug } });
-        if (!exists) {
-          await tx.workspace.create({ data: { ...ws, createdAt: new Date(ws.createdAt), updatedAt: new Date(ws.updatedAt) } });
-          stats.workspaces++;
-        }
+        const d = { ...ws, createdAt: new Date(ws.createdAt), updatedAt: new Date(ws.updatedAt) };
+        await tx.workspace.upsert({ where: { id: ws.id }, create: d, update: d });
+        stats.workspaces++;
       }
 
       // 3. Workspace members
       for (const wm of data.workspaceMembers || []) {
-        const exists = await tx.workspaceMember.findUnique({
+        const d = { ...wm, joinedAt: new Date(wm.joinedAt) };
+        await tx.workspaceMember.upsert({
           where: { userId_workspaceId: { userId: wm.userId, workspaceId: wm.workspaceId } },
+          create: d,
+          update: d,
         });
-        if (!exists) {
-          await tx.workspaceMember.create({ data: { ...wm, joinedAt: new Date(wm.joinedAt) } });
-        }
       }
 
       // 4. Servers
       for (const server of data.servers || []) {
-        const exists = await tx.server.findUnique({ where: { id: server.id } });
-        if (!exists) {
-          await tx.server.create({
-            data: {
-              ...server,
-              lastSeenAt: server.lastSeenAt ? new Date(server.lastSeenAt) : null,
-              createdAt: new Date(server.createdAt),
-              updatedAt: new Date(server.updatedAt),
-            },
-          });
-          stats.servers++;
-        }
+        const d = {
+          ...server,
+          lastSeenAt: server.lastSeenAt ? new Date(server.lastSeenAt) : null,
+          createdAt: new Date(server.createdAt),
+          updatedAt: new Date(server.updatedAt),
+        };
+        await tx.server.upsert({ where: { id: server.id }, create: d, update: d });
+        stats.servers++;
       }
 
       // 5. Agent tokens
       for (const at of data.agentTokens || []) {
-        const exists = await tx.agentToken.findUnique({ where: { id: at.id } });
-        if (!exists) {
-          await tx.agentToken.create({ data: { ...at, createdAt: new Date(at.createdAt) } });
-        }
+        const d = { ...at, createdAt: new Date(at.createdAt) };
+        await tx.agentToken.upsert({ where: { id: at.id }, create: d, update: d });
       }
 
       // 6. Containers
       for (const c of data.containers || []) {
-        const exists = await tx.container.findUnique({
+        const d = { ...c, lastUpdatedAt: new Date(c.lastUpdatedAt), createdAt: new Date(c.createdAt) };
+        await tx.container.upsert({
           where: { serverId_containerId: { serverId: c.serverId, containerId: c.containerId } },
+          create: d,
+          update: d,
         });
-        if (!exists) {
-          await tx.container.create({
-            data: { ...c, lastUpdatedAt: new Date(c.lastUpdatedAt), createdAt: new Date(c.createdAt) },
-          });
-        }
       }
 
       // 7. Vault groups + credentials
       for (const vg of data.vaultGroups || []) {
-        const exists = await tx.vaultGroup.findUnique({ where: { id: vg.id } });
-        if (!exists) {
-          await tx.vaultGroup.create({
-            data: { ...vg, createdAt: new Date(vg.createdAt), updatedAt: new Date(vg.updatedAt) },
-          });
-        }
+        const d = { ...vg, createdAt: new Date(vg.createdAt), updatedAt: new Date(vg.updatedAt) };
+        await tx.vaultGroup.upsert({ where: { id: vg.id }, create: d, update: d });
       }
       for (const cred of data.credentials || []) {
-        const exists = await tx.credential.findUnique({ where: { id: cred.id } });
-        if (!exists) {
-          await tx.credential.create({
-            data: { ...cred, createdAt: new Date(cred.createdAt), updatedAt: new Date(cred.updatedAt) },
-          });
-          stats.credentials++;
-        }
+        const d = { ...cred, createdAt: new Date(cred.createdAt), updatedAt: new Date(cred.updatedAt) };
+        await tx.credential.upsert({ where: { id: cred.id }, create: d, update: d });
+        stats.credentials++;
       }
 
       // 8. Health checks + pings
       for (const hc of data.healthChecks || []) {
-        const exists = await tx.healthCheck.findUnique({ where: { id: hc.id } });
-        if (!exists) {
-          await tx.healthCheck.create({
-            data: {
-              ...hc,
-              sslExpiresAt: hc.sslExpiresAt ? new Date(hc.sslExpiresAt) : null,
-              lastCheckedAt: hc.lastCheckedAt ? new Date(hc.lastCheckedAt) : null,
-              createdAt: new Date(hc.createdAt),
-              updatedAt: new Date(hc.updatedAt),
-            },
-          });
-          stats.healthChecks++;
-        }
+        const d = {
+          ...hc,
+          sslExpiresAt: hc.sslExpiresAt ? new Date(hc.sslExpiresAt) : null,
+          lastCheckedAt: hc.lastCheckedAt ? new Date(hc.lastCheckedAt) : null,
+          createdAt: new Date(hc.createdAt),
+          updatedAt: new Date(hc.updatedAt),
+        };
+        await tx.healthCheck.upsert({ where: { id: hc.id }, create: d, update: d });
+        stats.healthChecks++;
       }
       for (const ping of data.pings || []) {
-        const exists = await tx.ping.findUnique({ where: { id: ping.id } });
-        if (!exists) {
-          await tx.ping.create({ data: { ...ping, checkedAt: new Date(ping.checkedAt) } });
-        }
+        const d = { ...ping, checkedAt: new Date(ping.checkedAt) };
+        await tx.ping.upsert({ where: { id: ping.id }, create: d, update: d });
       }
 
       // 9. Webhooks
       for (const wh of data.webhooks || []) {
-        const exists = await tx.webhook.findUnique({ where: { id: wh.id } });
-        if (!exists) {
-          await tx.webhook.create({
-            data: { ...wh, createdAt: new Date(wh.createdAt), updatedAt: new Date(wh.updatedAt) },
-          });
-          stats.webhooks++;
-        }
+        const d = { ...wh, createdAt: new Date(wh.createdAt), updatedAt: new Date(wh.updatedAt) };
+        await tx.webhook.upsert({ where: { id: wh.id }, create: d, update: d });
+        stats.webhooks++;
       }
 
       // 10. Domains
       for (const d of data.domains || []) {
-        const exists = await tx.domain.findFirst({ where: { domain: d.domain } });
-        if (!exists) {
-          await tx.domain.create({
-            data: { ...d, createdAt: new Date(d.createdAt), updatedAt: new Date(d.updatedAt) },
-          });
-          stats.domains++;
-        }
+        const dd = { ...d, createdAt: new Date(d.createdAt), updatedAt: new Date(d.updatedAt) };
+        await tx.domain.upsert({ where: { domain: d.domain }, create: dd, update: dd });
+        stats.domains++;
       }
 
-      // 11. Backups (metadata only, not the actual backup files)
+      // 11. Backups (metadata only)
       for (const b of data.backups || []) {
-        const exists = await tx.backup.findUnique({ where: { id: b.id } });
-        if (!exists) {
-          await tx.backup.create({
-            data: {
-              ...b,
-              createdAt: new Date(b.createdAt),
-              completedAt: b.completedAt ? new Date(b.completedAt) : null,
-            },
-          });
-        }
+        const d = { ...b, createdAt: new Date(b.createdAt), completedAt: b.completedAt ? new Date(b.completedAt) : null };
+        await tx.backup.upsert({ where: { id: b.id }, create: d, update: d });
       }
 
       // 12. Backup schedules
       for (const bs of data.backupSchedules || []) {
-        const exists = await tx.backupSchedule.findUnique({ where: { id: bs.id } });
-        if (!exists) {
-          await tx.backupSchedule.create({
-            data: {
-              ...bs,
-              lastRunAt: bs.lastRunAt ? new Date(bs.lastRunAt) : null,
-              createdAt: new Date(bs.createdAt),
-              updatedAt: new Date(bs.updatedAt),
-            },
-          });
-          stats.backupSchedules++;
-        }
+        const d = {
+          ...bs,
+          lastRunAt: bs.lastRunAt ? new Date(bs.lastRunAt) : null,
+          createdAt: new Date(bs.createdAt),
+          updatedAt: new Date(bs.updatedAt),
+        };
+        await tx.backupSchedule.upsert({ where: { id: bs.id }, create: d, update: d });
+        stats.backupSchedules++;
       }
 
       // 13. Stacks
       for (const s of data.stacks || []) {
-        const exists = await tx.stack.findUnique({ where: { id: s.id } });
-        if (!exists) {
-          await tx.stack.create({
-            data: { ...s, createdAt: new Date(s.createdAt), updatedAt: new Date(s.updatedAt) },
-          });
-          stats.stacks++;
-        }
+        const d = { ...s, createdAt: new Date(s.createdAt), updatedAt: new Date(s.updatedAt) };
+        await tx.stack.upsert({ where: { id: s.id }, create: d, update: d });
+        stats.stacks++;
       }
 
-      // 14. Metrics (bulk, skip existing)
-      const metricIds = new Set(
-        (await tx.metric.findMany({ select: { id: true }, take: 100000 })).map((m) => m.id)
-      );
-      const newMetrics = (data.metrics || [])
-        .filter((m: any) => !metricIds.has(m.id))
-        .map((m: any) => ({ ...m, collectedAt: new Date(m.collectedAt) }));
+      // 14. Metrics (bulk)
+      const newMetrics = (data.metrics || []).map((m: any) => ({ ...m, collectedAt: new Date(m.collectedAt) }));
       if (newMetrics.length > 0) {
         await tx.metric.createMany({ data: newMetrics, skipDuplicates: true });
       }
