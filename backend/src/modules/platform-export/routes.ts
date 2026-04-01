@@ -115,16 +115,36 @@ router.post("/import", async (req: Request, res: Response) => {
 
   try {
     await prisma.$transaction(async (tx) => {
-      // 1. Users — upsert by id (overwrite everything)
+      // 1. Users — match by email, replace with exported id + data
       for (const user of data.users || []) {
         const d = { ...user, createdAt: new Date(user.createdAt), updatedAt: new Date(user.updatedAt) };
+        const existing = await tx.user.findUnique({ where: { email: user.email } });
+        if (existing && existing.id !== user.id) {
+          // Different id, same email — update all references then delete old
+          await tx.workspaceMember.updateMany({ where: { userId: existing.id }, data: { userId: user.id } });
+          await tx.user.delete({ where: { id: existing.id } });
+        }
         await tx.user.upsert({ where: { id: user.id }, create: d, update: d });
         stats.users++;
       }
 
-      // 2. Workspaces
+      // 2. Workspaces — match by slug, replace with exported id + data
       for (const ws of data.workspaces || []) {
         const d = { ...ws, createdAt: new Date(ws.createdAt), updatedAt: new Date(ws.updatedAt) };
+        const existing = await tx.workspace.findUnique({ where: { slug: ws.slug } });
+        if (existing && existing.id !== ws.id) {
+          // Migrate all references from old id to new id
+          await tx.workspaceMember.updateMany({ where: { workspaceId: existing.id }, data: { workspaceId: ws.id } });
+          await tx.server.updateMany({ where: { workspaceId: existing.id }, data: { workspaceId: ws.id } });
+          await tx.vaultGroup.updateMany({ where: { workspaceId: existing.id }, data: { workspaceId: ws.id } });
+          await tx.healthCheck.updateMany({ where: { workspaceId: existing.id }, data: { workspaceId: ws.id } });
+          await tx.webhook.updateMany({ where: { workspaceId: existing.id }, data: { workspaceId: ws.id } });
+          await tx.domain.updateMany({ where: { workspaceId: existing.id }, data: { workspaceId: ws.id } });
+          await tx.backup.updateMany({ where: { workspaceId: existing.id }, data: { workspaceId: ws.id } });
+          await tx.backupSchedule.updateMany({ where: { workspaceId: existing.id }, data: { workspaceId: ws.id } });
+          await tx.stack.updateMany({ where: { workspaceId: existing.id }, data: { workspaceId: ws.id } });
+          await tx.workspace.delete({ where: { id: existing.id } });
+        }
         await tx.workspace.upsert({ where: { id: ws.id }, create: d, update: d });
         stats.workspaces++;
       }
