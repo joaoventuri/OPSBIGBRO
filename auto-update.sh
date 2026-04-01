@@ -30,13 +30,17 @@ git pull origin master
 
 # Install dependencies
 log "📦 Installing backend dependencies..."
-cd backend && npm install --production
+cd backend && npm install --omit=dev
+
+log "📦 Running migrations..."
+npx prisma generate
+npx prisma db push --skip-generate
 
 log "📦 Installing frontend dependencies..."
-cd ../frontend && npm install --production
+cd ../frontend && npm install
 
 log "🏗️  Building frontend..."
-npm run build
+npx next build
 
 # Restart services
 log "🔄 Restarting services..."
