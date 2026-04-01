@@ -1,15 +1,64 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import { Download, Upload, CheckCircle2, AlertCircle, Loader2, Settings } from "lucide-react";
+import { Download, Upload, CheckCircle2, AlertCircle, Loader2, Clock, Save } from "lucide-react";
+
+const TIMEZONES = [
+  "UTC",
+  "America/Sao_Paulo",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "America/Argentina/Buenos_Aires",
+  "America/Bogota",
+  "America/Mexico_City",
+  "America/Santiago",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "Europe/Madrid",
+  "Europe/Lisbon",
+  "Europe/Moscow",
+  "Asia/Tokyo",
+  "Asia/Shanghai",
+  "Asia/Kolkata",
+  "Asia/Dubai",
+  "Asia/Singapore",
+  "Australia/Sydney",
+  "Pacific/Auckland",
+];
 
 export default function SettingsPage() {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [timezone, setTimezone] = useState("UTC");
+  const [savedTz, setSavedTz] = useState("UTC");
+  const [savingTz, setSavingTz] = useState(false);
+
+  useEffect(() => {
+    api<{ timezone: string }>("/platform/timezone").then((r) => {
+      setTimezone(r.timezone);
+      setSavedTz(r.timezone);
+    }).catch(() => {});
+  }, []);
+
+  const handleSaveTimezone = async () => {
+    setSavingTz(true);
+    try {
+      await api("/platform/timezone", { method: "PUT", body: { timezone } });
+      setSavedTz(timezone);
+      setResult({ type: "success", message: `Timezone set to ${timezone}` });
+    } catch (err: any) {
+      setResult({ type: "error", message: err.message });
+    } finally {
+      setSavingTz(false);
+    }
+  };
 
   const handleExport = async () => {
     setExporting(true);
@@ -88,61 +137,100 @@ export default function SettingsPage() {
         <p className="text-sm text-muted-foreground mt-1">Platform configuration and data management</p>
       </div>
 
-      {/* Export / Import */}
-      <div className="space-y-6">
+      <div className="space-y-8">
+        {/* Timezone */}
+        <div>
+          <h2 className="text-lg font-semibold mb-1">Timezone</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Set the timezone for scheduled backups and cron jobs.
+          </p>
+          <Card className="bg-card/50 border-border">
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-lg bg-yellow-500/10">
+                  <Clock className="h-6 w-6 text-yellow-500" />
+                </div>
+                <div className="flex-1">
+                  <select
+                    value={timezone}
+                    onChange={(e) => setTimezone(e.target.value)}
+                    className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    {TIMEZONES.map((tz) => (
+                      <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
+                    ))}
+                  </select>
+                </div>
+                <Button
+                  onClick={handleSaveTimezone}
+                  disabled={savingTz || timezone === savedTz}
+                  size="sm"
+                >
+                  {savingTz ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <><Save className="h-4 w-4 mr-1" /> Save</>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Export / Import */}
         <div>
           <h2 className="text-lg font-semibold mb-1">Platform Backup</h2>
           <p className="text-sm text-muted-foreground mb-4">
             Export or import the entire ServerLess database — servers, credentials, health checks, webhooks, domains, stacks, backup schedules, and all configurations.
           </p>
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card className="bg-card/50 border-border">
-            <CardContent className="pt-6">
-              <div className="flex items-start gap-4">
-                <div className="p-3 rounded-lg bg-primary/10">
-                  <Download className="h-6 w-6 text-primary" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card className="bg-card/50 border-border">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-4">
+                  <div className="p-3 rounded-lg bg-primary/10">
+                    <Download className="h-6 w-6 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold mb-1">Export</h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Download a complete snapshot of this workspace. Use it to migrate to another ServerLess instance or as a full backup.
+                    </p>
+                    <Button onClick={handleExport} disabled={exporting} className="w-full">
+                      {exporting ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Exporting...</>
+                      ) : (
+                        <><Download className="h-4 w-4 mr-2" /> Export Database</>
+                      )}
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold mb-1">Export</h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Download a complete snapshot of this workspace. Use it to migrate to another ServerLess instance or as a full backup.
-                  </p>
-                  <Button onClick={handleExport} disabled={exporting} className="w-full">
-                    {exporting ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Exporting...</>
-                    ) : (
-                      <><Download className="h-4 w-4 mr-2" /> Export Database</>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
 
-          <Card className="bg-card/50 border-border">
-            <CardContent className="pt-6">
-              <div className="flex items-start gap-4">
-                <div className="p-3 rounded-lg bg-blue-500/10">
-                  <Upload className="h-6 w-6 text-blue-500" />
+            <Card className="bg-card/50 border-border">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-4">
+                  <div className="p-3 rounded-lg bg-blue-500/10">
+                    <Upload className="h-6 w-6 text-blue-500" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold mb-1">Import</h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Restore from a ServerLess export file. All existing data will be overwritten.
+                    </p>
+                    <Button onClick={handleImport} disabled={importing} variant="outline" className="w-full">
+                      {importing ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Importing...</>
+                      ) : (
+                        <><Upload className="h-4 w-4 mr-2" /> Import Database</>
+                      )}
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold mb-1">Import</h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Restore from a ServerLess export file. Existing records are preserved — only new data is added.
-                  </p>
-                  <Button onClick={handleImport} disabled={importing} variant="outline" className="w-full">
-                    {importing ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Importing...</>
-                    ) : (
-                      <><Upload className="h-4 w-4 mr-2" /> Import Database</>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
         </div>
 
         {result && (

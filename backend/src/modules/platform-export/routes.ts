@@ -92,6 +92,25 @@ router.get("/export", async (req: Request, res: Response) => {
   res.send(json);
 });
 
+// ─── Timezone ───────────────────────────────────────────────
+
+router.get("/timezone", async (req: Request, res: Response) => {
+  const ws = await prisma.workspace.findUnique({ where: { id: req.auth!.workspaceId } });
+  res.json({ timezone: ws?.timezone || "UTC" });
+});
+
+router.put("/timezone", async (req: Request, res: Response) => {
+  const { timezone } = req.body;
+  if (!timezone || typeof timezone !== "string") {
+    return res.status(400).json({ error: "Invalid timezone" });
+  }
+  await prisma.workspace.update({
+    where: { id: req.auth!.workspaceId },
+    data: { timezone },
+  });
+  res.json({ success: true, timezone });
+});
+
 // ─── Import ServerLess database from export file ────────────
 
 router.post("/import", async (req: Request, res: Response) => {

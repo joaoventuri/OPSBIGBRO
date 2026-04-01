@@ -806,9 +806,12 @@ router.post("/schedules", async (req: Request, res: Response) => {
     data: { ...data, workspaceId: req.auth!.workspaceId },
   });
 
+  const workspace = await prisma.workspace.findUnique({ where: { id: req.auth!.workspaceId } });
+  const tz = workspace?.timezone || "UTC";
+
   await backupQueue.upsertJobScheduler(
     `backup-${schedule.id}`,
-    { pattern: schedule.cron },
+    { pattern: schedule.cron, tz },
     { name: "scheduled-backup", data: { scheduleId: schedule.id } }
   );
 
@@ -833,9 +836,11 @@ router.put("/schedules/:id/toggle", async (req: Request, res: Response) => {
   await prisma.backupSchedule.update({ where: { id: schedule.id }, data: { enabled: newState } });
 
   if (newState) {
+    const workspace = await prisma.workspace.findUnique({ where: { id: req.auth!.workspaceId } });
+    const tz = workspace?.timezone || "UTC";
     await backupQueue.upsertJobScheduler(
       `backup-${schedule.id}`,
-      { pattern: schedule.cron },
+      { pattern: schedule.cron, tz },
       { name: "scheduled-backup", data: { scheduleId: schedule.id } }
     );
   } else {

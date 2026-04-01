@@ -149,9 +149,29 @@ function generateStackCompose(containers: any[], networks: string[]): string {
   return lines.join("\n");
 }
 
+// ─── Re-register all enabled schedules on startup ──────────
+
+async function syncSchedules() {
+  const schedules = await prisma.backupSchedule.findMany({ where: { enabled: true }, include: { workspace: true } });
+  for (const schedule of schedules) {
+    const tz = schedule.workspace?.timezone || "UTC";
+    await backupQueue.upsertJobScheduler(
+      `backup-${schedule.id}`,
+      { pattern: schedule.cron, tz },
+      { name: "scheduled-backup", data: { scheduleId: schedule.id } }
+    );
+  }
+  if (schedules.length > 0) {
+    console.log(`[Backup] Re-registered ${schedules.length} schedule(s)`);
+  }
+}
+
 // ─── Worker ─────────────────────────────────────────────────
 
 export function startBackupWorker() {
+  // Re-register all cron schedules from DB into BullMQ
+  syncSchedules().catch((err) => console.error("[Backup] Failed to sync schedules:", err.message));
+
   const worker = new Worker(
     "backups",
     async (job) => {
