@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
-import { execSync, spawn } from "child_process";
+import { execSync, exec } from "child_process";
+import * as fs from "fs";
 
 const router = Router();
 const REPO_DIR = "/opt/serverless";
@@ -8,7 +9,6 @@ const REPO_DIR = "/opt/serverless";
 
 router.get("/check", async (_req: Request, res: Response) => {
   try {
-    // Check if repo dir exists
     execSync(`test -d "${REPO_DIR}/.git"`, { stdio: "pipe" });
 
     execSync("git fetch origin", { cwd: REPO_DIR, timeout: 15000, stdio: "pipe" });
@@ -19,7 +19,7 @@ router.get("/check", async (_req: Request, res: Response) => {
       return res.json({ updateAvailable: false, current: local.slice(0, 7) });
     }
 
-    const behindOutput = execSync(`git rev-list --count HEAD..FETCH_HEAD`, { cwd: REPO_DIR, stdio: "pipe" }).toString().trim();
+    const behindOutput = execSync("git rev-list --count HEAD..FETCH_HEAD", { cwd: REPO_DIR, stdio: "pipe" }).toString().trim();
     const commits = parseInt(behindOutput, 10) || 0;
 
     if (commits === 0) {
@@ -33,7 +33,6 @@ router.get("/check", async (_req: Request, res: Response) => {
       commits,
     });
   } catch {
-    // Not a git repo or git not available (dev env) — no update check
     res.json({ updateAvailable: false });
   }
 });
@@ -41,16 +40,54 @@ router.get("/check", async (_req: Request, res: Response) => {
 // ─── Trigger update ─────────────────────────────────────────
 
 router.post("/apply", async (_req: Request, res: Response) => {
-  // Respond immediately, then run update in background
-  res.json({ success: true, message: "Update started" });
+  try {
+    // Write a one-shot update script that runs independently of the backend
+    const script = `#!/bin/bash
+LOG="/var/log/serverless-update.log"
+log() { echo "[\$(date +'%Y-%m-%d %H:%M:%S')] \$1" >> "\$LOG"; }
 
-  // Run auto-update.sh detached so the server restart doesn't kill the response
-  const child = spawn("bash", [`${REPO_DIR}/auto-update.sh`], {
-    cwd: REPO_DIR,
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
+cd ${REPO_DIR}
+log "Update triggered from UI"
+
+git pull origin master >> "\$LOG" 2>&1
+
+cd ${REPO_DIR}/backend
+npm install --omit=dev >> "\$LOG" 2>&1
+npx prisma generate >> "\$LOG" 2>&1
+npx prisma db push --skip-generate >> "\$LOG" 2>&1
+
+cd ${REPO_DIR}/frontend
+npm install >> "\$LOG" 2>&1
+
+if npx next build >> "\$LOG" 2>&1; then
+  log "Build successful, restarting services..."
+  systemctl restart serverless-backend
+  sleep 2
+  systemctl restart serverless-frontend
+  log "Update complete!"
+else
+  log "ERROR: Build failed, services NOT restarted"
+fi
+
+rm -f /tmp/serverless-update.sh
+`;
+
+    fs.writeFileSync("/tmp/serverless-update.sh", script, { mode: 0o755 });
+
+    // Run completely detached via nohup so it survives backend restart
+    exec("nohup bash /tmp/serverless-update.sh &", { cwd: REPO_DIR });
+
+    res.json({ success: true, message: "Update started" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Update status (check if update is running) ────────────
+
+router.get("/status", async (_req: Request, res: Response) => {
+  const running = fs.existsSync("/tmp/serverless-update.sh");
+  res.json({ updating: running });
 });
 
 export default router;
