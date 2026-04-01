@@ -11,18 +11,15 @@ router.get("/check", async (_req: Request, res: Response) => {
   try {
     execSync(`test -d "${REPO_DIR}/.git"`, { stdio: "pipe" });
 
-    // Get default branch name
-    const branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: REPO_DIR, stdio: "pipe" }).toString().trim();
-    execSync(`git fetch origin ${branch}`, { cwd: REPO_DIR, timeout: 15000, stdio: "pipe" });
-
+    execSync("git fetch origin", { cwd: REPO_DIR, timeout: 15000, stdio: "pipe" });
     const local = execSync("git rev-parse HEAD", { cwd: REPO_DIR, stdio: "pipe" }).toString().trim();
-    const remote = execSync(`git rev-parse origin/${branch}`, { cwd: REPO_DIR, stdio: "pipe" }).toString().trim();
+    const remote = execSync("git rev-parse FETCH_HEAD", { cwd: REPO_DIR, stdio: "pipe" }).toString().trim();
 
     if (local === remote) {
       return res.json({ updateAvailable: false, current: local.slice(0, 7) });
     }
 
-    const behindOutput = execSync(`git rev-list --count HEAD..origin/${branch}`, { cwd: REPO_DIR, stdio: "pipe" }).toString().trim();
+    const behindOutput = execSync("git rev-list --count HEAD..FETCH_HEAD", { cwd: REPO_DIR, stdio: "pipe" }).toString().trim();
     const commits = parseInt(behindOutput, 10) || 0;
 
     if (commits === 0) {
