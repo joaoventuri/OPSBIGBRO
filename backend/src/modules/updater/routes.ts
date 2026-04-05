@@ -54,7 +54,7 @@ git reset --hard origin/master >> "\$LOG" 2>&1
 log "Git reset to origin/master"
 
 cd ${REPO_DIR}/backend
-npm install --omit=dev >> "\$LOG" 2>&1
+npm install >> "\$LOG" 2>&1
 npx prisma generate >> "\$LOG" 2>&1
 npx prisma db push --skip-generate >> "\$LOG" 2>&1
 
