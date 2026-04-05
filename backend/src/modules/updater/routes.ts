@@ -49,7 +49,9 @@ log() { echo "[\$(date +'%Y-%m-%d %H:%M:%S')] \$1" >> "\$LOG"; }
 cd ${REPO_DIR}
 log "Update triggered from UI"
 
-git pull origin master >> "\$LOG" 2>&1
+git fetch origin >> "\$LOG" 2>&1
+git reset --hard origin/master >> "\$LOG" 2>&1
+log "Git reset to origin/master"
 
 cd ${REPO_DIR}/backend
 npm install --omit=dev >> "\$LOG" 2>&1

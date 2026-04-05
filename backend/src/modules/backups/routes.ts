@@ -22,7 +22,7 @@ function sshExec(server: any, cmd: string, timeout = 60000): Promise<string> {
       });
     });
     ssh.on("error", (err) => { clearTimeout(timer); reject(err); });
-    const cfg: any = { host: server.host, port: server.port, username: server.username, readyTimeout: 10000 };
+    const cfg: any = { host: server.host, port: server.port, username: server.username, readyTimeout: 30000 };
     if (server.authType === "key" && server.privateKey) cfg.privateKey = server.privateKey;
     else cfg.password = server.password;
     ssh.connect(cfg);
@@ -30,14 +30,16 @@ function sshExec(server: any, cmd: string, timeout = 60000): Promise<string> {
 }
 
 // Stream file from one server to another via backend relay
-function sshStreamTransfer(src: any, dst: any, remotePath: string, destPath: string): Promise<void> {
+function sshStreamTransfer(src: any, dst: any, remotePath: string, destPath: string, timeout = 600000): Promise<void> {
   return new Promise((resolve, reject) => {
     const sshSrc = new SSHClient();
     const sshDst = new SSHClient();
     let done = false;
+    const timer = setTimeout(() => finish(new Error("Stream transfer timeout")), timeout);
     const finish = (err?: Error) => {
       if (done) return;
       done = true;
+      clearTimeout(timer);
       sshSrc.end();
       sshDst.end();
       err ? reject(err) : resolve();
@@ -57,14 +59,14 @@ function sshStreamTransfer(src: any, dst: any, remotePath: string, destPath: str
           });
         });
         sshSrc.on("error", finish);
-        const srcCfg: any = { host: src.host, port: src.port, username: src.username, readyTimeout: 10000 };
+        const srcCfg: any = { host: src.host, port: src.port, username: src.username, readyTimeout: 30000 };
         if (src.authType === "key" && src.privateKey) srcCfg.privateKey = src.privateKey;
         else srcCfg.password = src.password;
         sshSrc.connect(srcCfg);
       });
     });
     sshDst.on("error", finish);
-    const dstCfg: any = { host: dst.host, port: dst.port, username: dst.username, readyTimeout: 10000 };
+    const dstCfg: any = { host: dst.host, port: dst.port, username: dst.username, readyTimeout: 30000 };
     if (dst.authType === "key" && dst.privateKey) dstCfg.privateKey = dst.privateKey;
     else dstCfg.password = dst.password;
     sshDst.connect(dstCfg);
@@ -343,7 +345,7 @@ async function inspectContainer(server: any, name: string) {
 
 router.get("/", async (req: Request, res: Response) => {
   const backups = await prisma.backup.findMany({
-    where: { workspaceId: req.auth!.workspaceId },
+    where: { workspaceId: req.auth!.workspaceId, type: { not: "restore" } },
     orderBy: { createdAt: "desc" },
   });
   res.json(backups);
@@ -603,46 +605,91 @@ router.post("/import", async (req: Request, res: Response) => {
   if (!sourceServer) return res.status(404).json({ error: "Source server not found" });
   if (!targetServer) return res.status(404).json({ error: "Target server not found" });
 
-  try {
-    const manifest = JSON.parse(backup.metadata);
-    const restoreDir = `/opt/obb-backups/restore-${backup.id}`;
+  // Create an import job record reusing the backup model
+  const importJob = await prisma.backup.create({
+    data: {
+      name: `restore-${backup.name}`,
+      type: "restore",
+      containerIds: backup.containerIds,
+      serverId: targetServer.id,
+      serverName: targetServer.name,
+      status: "running",
+      workspaceId: req.auth!.workspaceId,
+    },
+  });
 
+  // Run import in background (like export does)
+  runImport(importJob.id, backup, sourceServer, targetServer, mode).catch(async (err) => {
+    await prisma.backup.update({
+      where: { id: importJob.id },
+      data: { status: "failed", error: err.message },
+    });
+  });
+
+  res.status(202).json({ jobId: importJob.id, message: "Restore started in background" });
+});
+
+// ─── Import status polling ─────────────────────────────────
+
+router.get("/import/status/:id", async (req: Request, res: Response) => {
+  const job = await prisma.backup.findFirst({
+    where: { id: req.params.id, workspaceId: req.auth!.workspaceId, type: "restore" },
+  });
+  if (!job) return res.status(404).json({ error: "Import job not found" });
+  res.json({ status: job.status, error: job.error, step: job.metadata || null });
+});
+
+async function runImport(jobId: string, backup: any, sourceServer: any, targetServer: any, mode: string) {
+  const updateStep = async (step: string) => {
+    console.log(`[Import ${jobId.slice(0, 8)}] ${step}`);
+    await prisma.backup.update({ where: { id: jobId }, data: { metadata: step } });
+  };
+
+  const manifest = JSON.parse(backup.metadata);
+  const restoreDir = `/opt/obb-backups/restore-${backup.id}`;
+
+  try {
     // Step 1: Transfer archive to target
     if (sourceServer.id === targetServer.id) {
-      await sshExec(targetServer, `mkdir -p ${restoreDir} && cd ${restoreDir} && tar xzf ${backup.fileName}`, 300000);
+      await updateStep("Extracting archive...");
+      await sshExec(targetServer, `mkdir -p ${restoreDir} && cd ${restoreDir} && tar xzf ${backup.fileName}`, 600000);
     } else {
-      // Cross-server: stream through backend
+      await updateStep("Transferring archive to target server...");
       const remoteTmp = `/opt/obb-backups/${backup.id}.opsbigbro`;
       await sshExec(targetServer, `mkdir -p /opt/obb-backups`);
-      await sshStreamTransfer(sourceServer, targetServer, backup.fileName!, remoteTmp);
-      await sshExec(targetServer, `mkdir -p ${restoreDir} && cd ${restoreDir} && tar xzf ${remoteTmp}`, 300000);
+      await sshStreamTransfer(sourceServer, targetServer, backup.fileName!, remoteTmp, 1200000);
+      await updateStep("Extracting archive...");
+      await sshExec(targetServer, `mkdir -p ${restoreDir} && cd ${restoreDir} && tar xzf ${remoteTmp}`, 600000);
       await sshExec(targetServer, `rm -f ${remoteTmp}`);
     }
 
     // Step 2: Create networks
+    await updateStep("Creating networks...");
     for (const network of manifest.networks || []) {
       await sshExec(targetServer, `docker network create ${network} 2>/dev/null || true`);
     }
 
     // Step 3: Restore volumes and bind mounts
-    for (const container of manifest.containers) {
+    const totalContainers = manifest.containers.length;
+    for (let i = 0; i < totalContainers; i++) {
+      const container = manifest.containers[i];
+      await updateStep(`Restoring volumes for ${container.name} (${i + 1}/${totalContainers})...`);
+
       for (const vol of container.volumes || []) {
         const tarName = vol.tarName || (vol.type === "bind" ? vol.name.replace(/\//g, "___") : vol.name);
         const hasTar = await sshExec(targetServer, `test -f "${restoreDir}/volumes/${tarName}.tar" && echo YES || echo NO`);
         if (!hasTar.includes("YES")) continue;
 
         if (vol.type === "bind") {
-          // Bind mount: create host directory and extract tar into it
           await sshExec(targetServer, `mkdir -p "${vol.name}"`);
           await sshExec(targetServer,
             `tar xf "${restoreDir}/volumes/${tarName}.tar" -C "${vol.name}" 2>&1`,
-            300000);
+            600000);
         } else {
-          // Named volume: create volume and extract via alpine
           await sshExec(targetServer, `docker volume create ${vol.name} 2>/dev/null || true`);
           await sshExec(targetServer,
             `docker run --rm -v ${vol.name}:/data -v ${restoreDir}/volumes:/backup alpine sh -c "cd /data && tar xf /backup/${tarName}.tar" 2>&1`,
-            300000);
+            600000);
         }
       }
 
@@ -657,34 +704,31 @@ router.post("/import", async (req: Request, res: Response) => {
             await sshExec(targetServer, `mkdir -p "${hostPath}"`);
             await sshExec(targetServer,
               `tar xf "${restoreDir}/volumes/${safeName}.tar" -C "${hostPath}" 2>&1`,
-              300000);
+              600000);
           }
         }
       }
     }
 
     // Step 4: Deploy via docker compose
+    await updateStep("Deploying containers...");
     const cc = await sshExec(targetServer, `docker compose version 2>/dev/null && echo V2OK || true`).catch(() => "");
     const composeCmd = cc.includes("V2OK") ? "docker compose" : "docker-compose";
 
     const createdContainers: string[] = [];
 
     if (mode === "stack" && manifest.containers.length > 1) {
-      // Stack mode: use combined stack-compose.yml
       const stackDir = `/opt/obb-compose/restore-${backup.id.slice(0, 8)}`;
       await sshExec(targetServer, `mkdir -p "${stackDir}"`);
 
-      // Stop existing containers with same names
       for (const c of manifest.containers) {
         await sshExec(targetServer, `docker stop ${c.name} 2>/dev/null; docker rm ${c.name} 2>/dev/null || true`);
       }
 
-      // Use stack compose from archive (or regenerate)
       const hasStackCompose = await sshExec(targetServer, `test -f "${restoreDir}/compose/stack-compose.yml" && echo YES || echo NO`);
       if (hasStackCompose.includes("YES")) {
         await sshExec(targetServer, `cp "${restoreDir}/compose/stack-compose.yml" "${stackDir}/docker-compose.yml"`);
       } else {
-        // Regenerate from manifest
         const stackYaml = generateStackCompose(manifest.containers, manifest.networks);
         const b64 = Buffer.from(stackYaml).toString("base64");
         await sshExec(targetServer, `printf '%s' '${b64}' | base64 -d > "${stackDir}/docker-compose.yml"`);
@@ -695,27 +739,25 @@ router.post("/import", async (req: Request, res: Response) => {
 
       for (const c of manifest.containers) createdContainers.push(c.name);
     } else {
-      // Individual mode: deploy each container separately via its own compose
-      for (const c of manifest.containers) {
+      for (let i = 0; i < manifest.containers.length; i++) {
+        const c = manifest.containers[i];
+        await updateStep(`Deploying ${c.name} (${i + 1}/${manifest.containers.length})...`);
         const containerDir = `/opt/obb-compose/${c.name}`;
         await sshExec(targetServer, `mkdir -p "${containerDir}"`);
 
-        // Stop existing
         await sshExec(targetServer, `docker stop ${c.name} 2>/dev/null; docker rm ${c.name} 2>/dev/null || true`);
 
-        // Use per-container compose from archive
         const hasCompose = await sshExec(targetServer, `test -f "${restoreDir}/compose/${c.name}/docker-compose.yml" && echo YES || echo NO`);
         if (hasCompose.includes("YES")) {
           await sshExec(targetServer, `cp "${restoreDir}/compose/${c.name}/docker-compose.yml" "${containerDir}/docker-compose.yml"`);
         } else {
-          // Fallback: generate from manifest
           const yaml = generateCompose(c);
           const b64 = Buffer.from(yaml).toString("base64");
           await sshExec(targetServer, `printf '%s' '${b64}' | base64 -d > "${containerDir}/docker-compose.yml"`);
         }
 
         await sshExec(targetServer,
-          `cd "${containerDir}" && ${composeCmd} up -d 2>&1`, 120000);
+          `cd "${containerDir}" && ${composeCmd} up -d 2>&1`, 300000);
         createdContainers.push(c.name);
       }
     }
@@ -723,24 +765,22 @@ router.post("/import", async (req: Request, res: Response) => {
     // Cleanup restore dir
     await sshExec(targetServer, `rm -rf ${restoreDir}`);
 
-    // Count stats
     const totalVolumes = manifest.containers.reduce((a: number, c: any) => a + (c.volumes?.length || 0), 0);
-    const totalEnvs = manifest.containers.reduce((a: number, c: any) => a + (c.env?.length || 0), 0);
 
-    res.json({
-      success: true,
-      restored: createdContainers.length,
-      containers: createdContainers,
-      volumes: totalVolumes,
-      envVars: totalEnvs,
-      networks: manifest.networks?.length || 0,
-      crossServer: sourceServer.id !== targetServer.id,
-      message: `Restored ${createdContainers.length} container(s), ${totalVolumes} volume(s), ${manifest.networks?.length || 0} network(s) from "${backup.name}"`,
+    await prisma.backup.update({
+      where: { id: jobId },
+      data: {
+        status: "completed",
+        metadata: `Restored ${createdContainers.length} container(s), ${totalVolumes} volume(s), ${manifest.networks?.length || 0} network(s) from "${backup.name}"`,
+        completedAt: new Date(),
+      },
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    // Try to cleanup on failure
+    await sshExec(targetServer, `rm -rf ${restoreDir}`).catch(() => {});
+    throw err;
   }
-});
+}
 
 // ─── Get compose preview from backup ────────────────────────
 

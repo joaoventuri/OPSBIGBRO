@@ -86,6 +86,7 @@ function BackupsTab({ servers, containers }: { servers: ServerItem[]; containers
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importStep, setImportStep] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [restoreMode, setRestoreMode] = useState<"stack" | "individual">("stack");
 
@@ -110,13 +111,39 @@ function BackupsTab({ servers, containers }: { servers: ServerItem[]; containers
 
   const doImport = async () => {
     setImporting(true);
+    setImportStep("Starting restore...");
     try {
       const data = await api("/backups/import", { method: "POST", body: { ...importForm, mode: restoreMode } });
-      setToast({ type: "success", message: data.message });
+      const jobId = data.jobId;
       setImportOpen(false);
-    } catch (err: any) { setToast({ type: "error", message: err.message }); }
-    setImporting(false);
-    setTimeout(() => setToast(null), 8000);
+
+      // Poll for status
+      const poll = setInterval(async () => {
+        try {
+          const status = await api(`/backups/import/status/${jobId}`);
+          setImportStep(status.step || status.status);
+          if (status.status === "completed") {
+            clearInterval(poll);
+            setImporting(false);
+            setImportStep(null);
+            setToast({ type: "success", message: status.step || "Restore completed!" });
+            setTimeout(() => setToast(null), 8000);
+            load();
+          } else if (status.status === "failed") {
+            clearInterval(poll);
+            setImporting(false);
+            setImportStep(null);
+            setToast({ type: "error", message: status.error || "Restore failed" });
+            setTimeout(() => setToast(null), 8000);
+          }
+        } catch { /* keep polling */ }
+      }, 3000);
+    } catch (err: any) {
+      setToast({ type: "error", message: err.message });
+      setImporting(false);
+      setImportStep(null);
+      setTimeout(() => setToast(null), 8000);
+    }
   };
 
   const doDelete = async (id: string) => {
@@ -215,6 +242,13 @@ function BackupsTab({ servers, containers }: { servers: ServerItem[]; containers
       </div>
 
       {toast && <Toast toast={toast} onClose={() => setToast(null)} />}
+
+      {importing && importStep && (
+        <div className="flex items-center gap-3 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-400">
+          <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+          <span>{importStep}</span>
+        </div>
+      )}
 
       {!loading && backups.length === 0 && (
         <Card className="border-dashed border-border/50">
@@ -574,7 +608,7 @@ function BackupsTab({ servers, containers }: { servers: ServerItem[]; containers
 
             <Button className="w-full" onClick={doImport} disabled={importing || !importForm.backupId || !importForm.targetServerId}>
               {importing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
-              {importing ? "Restoring Snapshot..." : "Restore Full Snapshot"}
+              {importing ? (importStep || "Restoring Snapshot...") : "Restore Full Snapshot"}
             </Button>
           </div>
         </DialogContent>
